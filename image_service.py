@@ -5,12 +5,27 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+from yolo_service import YoloInspectionService
+
 
 class ImageInspectionService:
     """从真实像素中完成质量门控、候选缺陷分割和区域定位。"""
 
     MAX_SIDE = 720
     GRID_SIZE = 6
+
+    def __init__(self):
+        import os
+        requested = os.getenv("VISION_BACKEND", "auto").lower().strip()
+        self.requested_backend = requested if requested in {"auto", "heuristic", "yolo"} else "auto"
+        self.yolo = YoloInspectionService(
+            os.getenv("YOLO_MODEL_PATH", ""),
+            os.getenv("YOLO_CONFIDENCE", "0.25"),
+        ) if self.requested_backend != "heuristic" else None
+        self.backend_name = "yolo" if self.requested_backend == "yolo" and self.yolo.available else "heuristic"
+        if self.requested_backend == "auto" and self.yolo.available:
+            self.backend_name = "yolo"
+        self.backend_error = self.yolo.error if self.yolo and self.backend_name == "heuristic" and self.requested_backend in {"auto", "yolo"} else ""
 
     @staticmethod
     def _location_name(row, col):
@@ -147,7 +162,7 @@ class ImageInspectionService:
         overlay.convert("RGB").save(overlay_path, "PNG", optimize=True)
 
         summary = "；".join(findings)
-        return {
+        result = {
             "summary": summary,
             "findings": findings,
             "detections": detections,
@@ -169,3 +184,15 @@ class ImageInspectionService:
                 "height": original_size[1],
             },
         }
+        if self.backend_name == "yolo":
+            try:
+                yolo_detections = self.yolo.analyze(path)
+                if yolo_detections is not None:
+                    result["detections"] = yolo_detections[:10]
+                    result["pipeline"].insert(-1, "YOLO 可选检测器融合")
+                    result["vision_backend"] = "yolo"
+            except Exception as exc:
+                self.backend_error = f"{type(exc).__name__}: {exc}"
+                self.backend_name = "heuristic"
+        result["vision_backend"] = self.backend_name
+        return result

@@ -32,3 +32,16 @@ def test_parameter_check_api_returns_client_error_for_invalid_value():
 
     assert response.status_code == 400
     assert response.json["status"] == "error"
+
+
+def test_capabilities_probe_is_non_sensitive():
+    app.config.update(TESTING=True)
+    with app.test_client() as client:
+        response = client.get("/api/capabilities")
+
+    assert response.status_code == 200
+    payload = response.json
+    assert payload["retrieval"]["active"] in {"keyword", "chroma"}
+    assert payload["vision"]["active"] in {"heuristic", "yolo"}
+    assert payload["predictive"]["active"] == "deterministic"
+    assert "API_KEY" not in response.get_data(as_text=True)

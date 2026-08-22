@@ -10,33 +10,19 @@ from pathlib import Path
 import requests
 
 
-class VectorService:
-    """使用公开的合成知识库完成可解释检索，云端模型作为可选增强。"""
+class KeywordBackend:
+    """Deterministic retrieval backend used by default and as a fallback."""
 
-    def __init__(self):
-        knowledge_path = Path(__file__).resolve().parent / "data" / "demo_knowledge_base.json"
-        with knowledge_path.open("r", encoding="utf-8") as handle:
-            self.knowledge_base = json.load(handle)
+    name = "keyword"
 
-    def _tokenize(self, text):
-        """中文使用单字和二元词，英文使用单词，避免整句中文成为单一 token。"""
-        text = (text or "").lower()
-        tokens = re.findall(r"[a-z0-9_.+-]+", text)
-        for run in re.findall(r"[\u4e00-\u9fff]+", text):
-            tokens.extend(list(run))
-            tokens.extend(run[i:i + 2] for i in range(len(run) - 1))
-        return tokens
+    def __init__(self, tokenize):
+        self._tokenize = tokenize
 
-    def search_similar(self, query, top_k=2, dynamic_cases=None):
-        """结合静态演示知识和审核案例执行混合关键词匹配。"""
-        all_docs = copy.deepcopy(self.knowledge_base)
-        if dynamic_cases:
-            all_docs.extend(copy.deepcopy(dynamic_cases))
-
+    def search(self, docs, query, top_k):
         query_tokens = self._tokenize(query)
         query_set = set(query_tokens)
         scores = []
-        for doc in all_docs:
+        for doc in docs:
             doc_tokens = self._tokenize(doc["text"])
             doc_set = set(doc_tokens)
             intersection = query_set.intersection(doc_set)
@@ -51,15 +37,99 @@ class VectorService:
                         score += 0.025
                 score = min(score, 1.0)
             scores.append((score, doc))
-
         scores.sort(key=lambda item: item[0], reverse=True)
-        formatted_docs = []
-        for score, doc_info in scores[:top_k]:
-            doc_info["score"] = score
-            doc_info["matched_terms"] = list(
-                set(self._tokenize(doc_info["text"])).intersection(query_set)
-            )[:8]
-            formatted_docs.append(doc_info)
+        result = []
+        for score, doc in scores[:top_k]:
+            item = copy.deepcopy(doc)
+            item.update({
+                "score": round(score, 4),
+                "matched_terms": list(set(self._tokenize(item["text"])).intersection(query_set))[:8],
+                "backend": self.name,
+            })
+            result.append(item)
+        return result
+
+
+class ChromaBackend:
+    """Optional Chroma adapter. Importing this module never requires Chroma."""
+
+    name = "chroma"
+
+    def __init__(self, path, embedding_model=""):
+        import chromadb
+
+        self.client = chromadb.PersistentClient(path=str(path))
+        kwargs = {}
+        if embedding_model:
+            from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+            kwargs["embedding_function"] = SentenceTransformerEmbeddingFunction(model_name=embedding_model)
+        self.collection = self.client.get_or_create_collection("demo_knowledge", **kwargs)
+
+    def ensure_documents(self, docs):
+        existing = self.collection.count()
+        if existing >= len(docs):
+            return
+        self.collection.upsert(
+            ids=[f"demo-{index}" for index in range(len(docs))],
+            documents=[doc["text"] for doc in docs],
+            metadatas=[{"source": doc.get("source", "合成演示知识库")} for doc in docs],
+        )
+
+    def search(self, docs, query, top_k):
+        self.ensure_documents(docs)
+        response = self.collection.query(query_texts=[query or "通用设备点检"], n_results=top_k)
+        result = []
+        distances = (response.get("distances") or [[0.0]])[0]
+        documents = response.get("documents") or [[]]
+        for index, text in enumerate(documents[0]):
+            distance = distances[index] if index < len(distances) else 0.0
+            metadata_rows = (response.get("metadatas") or [[]])[0]
+            metadata = metadata_rows[index] if index < len(metadata_rows) else {}
+            result.append({
+                "text": text,
+                "source": metadata.get("source", "合成演示知识库"),
+                "score": round(max(0.0, 1.0 - float(distance)), 4),
+                "matched_terms": [],
+                "backend": self.name,
+            })
+        return result
+
+
+class VectorService:
+    """使用公开的合成知识库完成可解释检索，云端模型作为可选增强。"""
+
+    def __init__(self):
+        knowledge_path = Path(__file__).resolve().parent / "data" / "demo_knowledge_base.json"
+        with knowledge_path.open("r", encoding="utf-8") as handle:
+            self.knowledge_base = json.load(handle)
+        self.backend_name = "keyword"
+        self.backend_error = ""
+        self.backend = KeywordBackend(self._tokenize)
+        if os.getenv("VECTOR_BACKEND", "keyword").lower() == "chroma":
+            try:
+                db_path = Path(os.getenv("VECTOR_DB_PATH", str(knowledge_path.parent / "chroma")))
+                self.backend = ChromaBackend(db_path, os.getenv("EMBEDDING_MODEL", "").strip())
+                self.backend_name = "chroma"
+            except Exception as exc:
+                self.backend_error = f"{type(exc).__name__}: {exc}"
+
+    def _tokenize(self, text):
+        """中文使用单字和二元词，英文使用单词，避免整句中文成为单一 token。"""
+        text = (text or "").lower()
+        tokens = re.findall(r"[a-z0-9_.+-]+", text)
+        for run in re.findall(r"[\u4e00-\u9fff]+", text):
+            tokens.extend(list(run))
+            tokens.extend(run[i:i + 2] for i in range(len(run) - 1))
+        return tokens
+
+    def search_similar(self, query, top_k=2, dynamic_cases=None):
+        """结合静态演示知识和审核案例执行混合关键词匹配。"""
+        static_docs = self.backend.search(self.knowledge_base, query, top_k)
+        if dynamic_cases:
+            dynamic_docs = KeywordBackend(self._tokenize).search(dynamic_cases, query, top_k)
+            static_docs.extend(dynamic_docs)
+            static_docs.sort(key=lambda item: item.get("score", 0), reverse=True)
+        formatted_docs = static_docs[:top_k]
         return formatted_docs
 
     def call_llm(self, query, context_docs):

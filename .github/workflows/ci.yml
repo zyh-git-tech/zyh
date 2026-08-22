@@ -23,7 +23,7 @@ jobs:
       - name: Ruff lint
         run: python -m ruff check .
       - name: Compile Python modules
-        run: python -m compileall -q app.py agent_service.py image_service.py knowledge_graph_service.py models.py predictive_service.py standards_service.py vector_service.py
+        run: python -m compileall -q app.py agent_service.py image_service.py knowledge_graph_service.py models.py predictive_service.py standards_service.py vector_service.py yolo_service.py
       - name: Run smoke test
         run: python smoke_test.py
       - name: Run pytest with coverage

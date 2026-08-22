@@ -32,3 +32,9 @@ python -m venv .venv
 - 没有图片时仅输入文本，展示本地降级流程。
 - 直接打开 `/predictive`，选择内置样例展示趋势图。
 - 打开 `/knowledge-graph` 和 `/admin/audit`，展示知识治理闭环。
+
+## 可选后端对比
+
+1. 默认离线：保持 `VECTOR_BACKEND=keyword`、`VISION_BACKEND=heuristic`，无需下载模型。
+2. Chroma：安装 `requirements-ml.txt`，设置 `VECTOR_BACKEND=chroma`，打开 `/api/capabilities` 展示检索后端；初始化失败会回到关键词检索。
+3. YOLO：设置 `VISION_BACKEND=yolo` 和本地 `YOLO_MODEL_PATH`，重新运行同一张合成图片，对比统一检测框输出；权重不可用时继续使用规则检测。

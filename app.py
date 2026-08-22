@@ -385,6 +385,27 @@ def healthcheck():
         }), 503
 
 
+@app.route("/api/capabilities")
+def capabilities():
+    """Expose non-sensitive backend choices for demos and support diagnostics."""
+    requested_vector = os.getenv("VECTOR_BACKEND", "keyword").lower()
+    requested_vision = os.getenv("VISION_BACKEND", "auto").lower()
+    return jsonify({
+        "version": app.config["APP_VERSION"],
+        "retrieval": {
+            "requested": requested_vector,
+            "active": vector_engine.backend_name,
+            "fallback": requested_vector == "chroma" and vector_engine.backend_name != "chroma",
+        },
+        "vision": {
+            "requested": requested_vision,
+            "active": image_engine.backend_name,
+            "fallback": requested_vision == "yolo" and image_engine.backend_name != "yolo",
+        },
+        "predictive": {"active": "deterministic"},
+    })
+
+
 @app.route("/diagnosis/reset", methods=["POST"])
 def reset_diagnosis():
     session.pop("diagnosis_result_id", None)

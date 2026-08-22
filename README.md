@@ -4,6 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Demo](https://img.shields.io/badge/Demo-local--first-orange)](https://github.com/zyh-git-tech/zyh)
 
 > **English summary:** Gongjing Zhiwei is a local-first Flask portfolio demo for multimodal equipment inspection. It combines image inspection, sensor trend analysis, retrieval, executable rule checks, explainable diagnosis, knowledge graphs, and work-order execution in one traceable workflow.
 
@@ -39,6 +40,7 @@
 - 知识图谱：展示现象、原因、检测、标准、处置和案例关系。
 - 闭环工单：从诊断或预测结果生成工单，支持步骤签核和进度追踪。
 - 离线优先：未配置云端模型时自动使用本地确定性诊断。
+- 可选增强：Chroma 向量检索、Ultralytics YOLO 检测器和可解释预测维护特征，均有自动回退。
 
 ## 工程亮点
 
@@ -113,11 +115,28 @@ hour,temperature,vibration,pressure
 | 工单中心 | `/work-orders` |
 | 专家治理 | `/admin/audit` |
 | 健康检查 | `GET /healthz` |
+| 能力探针 | `GET /api/capabilities` |
 | 参数检查 API | `POST /api/parameter-check` |
 
 ## 可选云端模型
 
 默认不需要密钥即可运行本地模式。复制 `.env.example` 后按需配置 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`。在线 Demo 默认不启用云端模型，避免密钥暴露和调用成本。
+
+## 可选模型能力
+
+```powershell
+python -m pip install -r requirements-ml.txt
+$env:VECTOR_BACKEND="chroma"
+$env:VISION_BACKEND="auto"
+$env:YOLO_MODEL_PATH="C:\models\best.pt"
+python app.py
+```
+
+Chroma 首次启动会从合成知识库建立本地 collection；YOLO 只有在 Ultralytics 和权重都可用时启用，否则自动回退。能力状态可查看 `GET /api/capabilities`。预测维护输出包含滚动均值、波动率、稳健异常分数、退化因子、RUL 和置信度；这些是合成演示估计，不代表真实设备寿命精度。
+
+## 评测边界
+
+`evaluate_demo.py` 和 `data/demo_eval_cases.json` 用于复现本地行为回归，输出风险准确率、原因 Macro-F1、降级通过率、RUL 方向通过率和视觉回退通过率。仓库没有真实工业缺陷标注集，YOLO 配置、合成预测样例和 RUL 结果仅用于工程接口演示。
 
 主要配置：`APP_SECRET_KEY`、`DATABASE_URL`、`APP_HOST`、`APP_PORT`、`PORT`、`APP_VERSION`、`FLASK_DEBUG`、`LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`。
 

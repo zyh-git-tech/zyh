@@ -192,7 +192,11 @@ class AgentOrchestrator:
         ]
         if sensor_result:
             steps[1] = {"title": "复核传感器与数据质量", "standard": "确认趋势有效并排除传感器松动"}
-            steps[2] = {"title": "锁定维护窗口", "standard": sensor_result.get("maintenance_window", "按趋势安排")}
+            rul = sensor_result.get("rul_hours")
+            window = sensor_result.get("maintenance_window", "按趋势安排")
+            if rul is not None:
+                window += f"；RUL 约 {rul} h（置信度 {sensor_result.get('rul_confidence', 0):.0%}）"
+            steps[2] = {"title": "锁定维护窗口", "standard": window}
         return {
             "title": f"{device_model or '通用设备'} · {(query or '综合检修')[:42]}",
             "device_model": device_model or "通用设备", "priority": priority,

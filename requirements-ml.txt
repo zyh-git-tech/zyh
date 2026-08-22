@@ -1,0 +1,4 @@
+# Optional local retrieval and vision enhancements. The default runtime does not install these.
+chromadb>=0.5,<1
+sentence-transformers>=3,<6
+ultralytics>=8.3,<9

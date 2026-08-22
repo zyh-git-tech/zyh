@@ -46,6 +46,10 @@ def run_benchmark(cases=None):
     expected_risks, predicted_risks = [], []
     expected_causes, predicted_causes = [], []
     degraded_passes = 0
+    rul_cases = 0
+    rul_passes = 0
+    vision_fallback_cases = 0
+    vision_fallback_passes = 0
     failures = []
 
     with tempfile.TemporaryDirectory(prefix="gongjing-eval-") as temp_dir:
@@ -69,6 +73,16 @@ def run_benchmark(cases=None):
                     use_demo_sensor=case.get("use_demo_sensor", False),
                 )
                 diagnosis = result["diagnosis"]
+                sensor_result = result.get("sensor_result")
+                if sensor_result is not None:
+                    rul_cases += 1
+                    if sensor_result.get("rul_hours") is None or sensor_result.get("rul_hours", 0) >= 0:
+                        rul_passes += 1
+                if case.get("invalid_image"):
+                    vision_fallback_cases += 1
+                    image_step = next((step for step in result["steps"] if step["tool"] == "inspect_image"), {})
+                    if image_step.get("status") == "failed" and result["status"] == "completed":
+                        vision_fallback_passes += 1
                 predicted_risks.append(diagnosis["risk_level"])
                 expected_risks.append(case["expected_risk"])
                 predicted_causes.append(diagnosis["causes"][0])
@@ -92,6 +106,8 @@ def run_benchmark(cases=None):
         "risk_accuracy": round(risk_accuracy, 3),
         "cause_macro_f1": round(_f1_by_label(expected_causes, predicted_causes), 3),
         "degradation_pass_rate": round(degraded_passes / max(1, sum(bool(case.get("expects_degraded_step")) for case in cases)), 3),
+        "rul_direction_pass_rate": round(rul_passes / max(1, rul_cases), 3),
+        "vision_fallback_pass_rate": round(vision_fallback_passes / max(1, vision_fallback_cases), 3),
         "failures": failures,
     }
 
@@ -108,6 +124,8 @@ def main():
     print(f"risk_accuracy: {report['risk_accuracy']:.1%}")
     print(f"cause_macro_f1: {report['cause_macro_f1']:.3f}")
     print(f"degradation_pass_rate: {report['degradation_pass_rate']:.1%}")
+    print(f"rul_direction_pass_rate: {report['rul_direction_pass_rate']:.1%}")
+    print(f"vision_fallback_pass_rate: {report['vision_fallback_pass_rate']:.1%}")
     if report["failures"]:
         print("failures:")
         for failure in report["failures"]:

@@ -99,6 +99,29 @@ def _linear_fit(xs, ys):
     return slope, intercept, max(0, min(1, r2))
 
 
+def _robust_features(values, rule, current, slope):
+    """Return explainable, standard-library-only health features."""
+    window = values[-min(5, len(values)):]
+    rolling_mean = statistics.fmean(window)
+    mean = statistics.median(values)
+    deviations = [abs(value - mean) for value in values]
+    mad = statistics.median(deviations) or 1e-9
+    robust_z = abs(current - mean) / (1.4826 * mad)
+    trend_score = min(1.0, abs(slope) / max(abs(rule["danger"] - rule["warning"]), 1.0) * 12)
+    if rule["direction"] == "max":
+        threshold_ratio = (current - rule["warning"]) / max(1.0, rule["danger"] - rule["warning"])
+    else:
+        threshold_ratio = (rule["warning"] - current) / max(1.0, rule["warning"] - rule["danger"])
+    threshold_score = max(0.0, min(1.0, threshold_ratio))
+    volatility = statistics.pstdev(window) / max(abs(rolling_mean), 1e-9)
+    anomaly_score = max(0.0, min(100.0, robust_z * 12 + trend_score * 28 + threshold_score * 60))
+    return {
+        "rolling_mean": round(rolling_mean, 3),
+        "volatility": round(volatility, 4),
+        "robust_anomaly_score": round(anomaly_score, 1),
+    }
+
+
 def analyze_series(rows):
     xs = [row["hour"] for row in rows]
     last_hour = xs[-1]
@@ -129,10 +152,12 @@ def analyze_series(rows):
             warning_ratio = max(0, (rule["warning"] - current) / max(1, rule["warning"] - danger))
             status = "危险" if current <= danger else ("预警" if current <= rule["warning"] else "正常")
         severity_points.append(min(1.4, warning_ratio))
+        robust = _robust_features(values, rule, current, slope)
         metrics[key] = {
             **rule, "current": round(current, 2), "slope": round(slope, 4),
             "r2": round(r2, 2), "status": status,
             "hours_to_cross": round(hours_to_cross, 1) if hours_to_cross is not None and hours_to_cross >= 0 else None,
+            **robust,
         }
 
     predicted_hours = min((item[0] for item in crossing_candidates), default=None)
@@ -148,6 +173,22 @@ def analyze_series(rows):
 
     primary_key = min(crossing_candidates, default=(None, "vibration"))[1]
     primary = metrics[primary_key]
+    anomaly_score = round(min(100.0, statistics.fmean(item["robust_anomaly_score"] for item in metrics.values()) * 0.55
+                              + max(severity_points) * 35), 1)
+    degradation_factors = [metric["name"] for metric in metrics.values()
+                           if metric["status"] != "正常" or abs(metric["slope"]) > 0.02]
+    degradation_factors = degradation_factors or [primary["name"]]
+    if predicted_hours is None:
+        rul_confidence = 0.35 if len(rows) < 8 else round(max(0.4, primary["r2"] * 0.7), 2)
+        rul_explanation = "当前数据未形成可靠危险阈值交点，RUL 仅作趋势参考。"
+    else:
+        rul_confidence = round(max(0.35, min(0.95, primary["r2"] * 0.75 + min(0.2, len(rows) / 100))), 2)
+        rul_explanation = f"基于{primary['name']}线性趋势与危险阈值估计。"
+    explanations = [
+        f"异常分数 {anomaly_score}/100，综合稳健偏离、趋势方向和阈值距离。",
+        f"主要退化因子：{'、'.join(degradation_factors)}。",
+        rul_explanation,
+    ]
     summary = (
         f"当前健康度 {health_score} 分，主要退化因子为{primary['name']}，"
         f"当前值 {primary['current']} {primary['unit']}，趋势斜率 {primary['slope']:+g}/{primary['unit']}·h。"
@@ -160,6 +201,11 @@ def analyze_series(rows):
     return {
         "health_score": health_score, "risk_level": risk_level,
         "predicted_hours": round(predicted_hours, 1) if predicted_hours is not None else None,
+        "rul_hours": round(predicted_hours, 1) if predicted_hours is not None else None,
+        "rul_confidence": rul_confidence,
+        "anomaly_score": anomaly_score,
+        "degradation_factors": degradation_factors,
+        "explanations": explanations,
         "maintenance_window": maintenance_window, "primary_metric": primary_key,
         "summary": summary, "metrics": metrics, "series": rows,
         "recommendations": [

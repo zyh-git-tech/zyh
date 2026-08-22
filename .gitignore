@@ -22,6 +22,12 @@ outputs/
 static/uploads/*
 !static/uploads/.gitkeep
 data/local/
+data/chroma/
+models/
+runs/
+*.pt
+*.onnx
+.cache/
 摩托车发动机维修手册.pdf
 server.log
 server-error.log
