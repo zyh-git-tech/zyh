@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}故障知识图谱{% endblock %}
+{% block top_title %}工业故障因果知识图谱{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>设备故障因果知识图谱</h1><p>连接现象、原因、检测、标准、处置与证据，支持从故障表征到维修决策的路径推演。</p></div>
+  <div class="chips"><span class="badge safe">{{ approved_count }} 条审核案例已融合</span><span class="badge purple">知识版本 KG-3.0</span></div>
+</div>
+
+<div class="grid grid-4 kg-stats">
+  <div class="panel metric"><div class="metric-label">知识实体</div><div class="metric-value">{{ graph.stats.nodes }}</div><div class="metric-foot">7 类异构节点</div></div>
+  <div class="panel metric" style="--metric-bg:#e9f8f1"><div class="metric-label">语义关系</div><div class="metric-value">{{ graph.stats.edges }}</div><div class="metric-foot">带置信度与证据</div></div>
+  <div class="panel metric" style="--metric-bg:#fff1dc"><div class="metric-label">标准阈值</div><div class="metric-value">{{ graph.stats.standards }}</div><div class="metric-foot">机器可执行红线</div></div>
+  <div class="panel metric" style="--metric-bg:#efeaff"><div class="metric-label">可推演路径</div><div class="metric-value">{{ graph.stats.paths }}</div><div class="metric-foot">现象到处置闭环</div></div>
+</div>
+
+<section class="kg-scenarios" aria-label="故障路径推演">
+  <strong>故障路径推演</strong>
+  <div class="segmented">
+    <button type="button" data-path="startup">启动困难</button>
+    <button type="button" data-path="knock">敲击异响</button>
+    <button type="button" data-path="leak">渗油油泥</button>
+    <button type="button" data-path="power">动力不足</button>
+    <button type="button" data-path="clear" title="清除路径高亮">重置</button>
+  </div>
+  <div id="pathSummary" class="kg-path-summary">选择一个故障现象，系统将高亮“现象 → 原因 → 检测 → 标准 → 处置”最可信路径。</div>
+</section>
+
+<div class="kg-layout">
+  <section class="panel kg-panel">
+    <div class="kg-toolbar">
+      <label class="kg-search"><span aria-hidden="true">⌕</span><input id="graphSearch" type="search" placeholder="搜索实体、标准或证据"></label>
+      <div class="kg-filters" id="graphFilters">
+        {% for key, label in graph.type_labels.items() %}<button type="button" class="active" data-type="{{ key }}"><span class="kg-dot {{ key }}"></span>{{ label }}</button>{% endfor %}
+      </div>
+    </div>
+    <div class="kg-canvas-wrap">
+      <svg id="knowledgeGraph" class="kg-canvas" role="img" aria-label="工业设备故障知识图谱"></svg>
+      <div class="kg-legend"><span>拖动画布</span><span>滚轮缩放</span><span>点击节点查看证据</span></div>
+    </div>
+  </section>
+
+  <aside class="panel kg-detail" id="nodeDetail">
+    <div class="panel-head"><h3>节点证据</h3><span class="badge info" id="detailType">待选择</span></div>
+    <div class="panel-body">
+      <div class="kg-detail-empty" id="detailEmpty">点击图谱中的任意节点，查看实体定义、入边出边与原始证据。</div>
+      <div id="detailContent" hidden>
+        <h2 id="detailLabel"></h2>
+        <p id="detailDescription"></p>
+        <div class="kg-evidence"><small>证据 / 数据来源</small><div id="detailEvidence"></div></div>
+        <div class="kg-relations"><small>关联关系</small><div id="detailRelations"></div></div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const graph={{ graph|tojson }};
+const svg=document.getElementById('knowledgeGraph');
+const ns='http://www.w3.org/2000/svg';
+const nodeMap=new Map(graph.nodes.map(node=>[node.id,node]));
+const colors={symptom:'#dc4c52',cause:'#e99317',check:'#1677ff',standard:'#7557d3',action:'#16a06f',source:'#52657a',case:'#b84988'};
+let view={x:0,y:0,w:1280,h:780},drag=null,activeTypes=new Set(Object.keys(graph.type_labels)),activePath=[];
+
+function element(name,attrs={}){const item=document.createElementNS(ns,name);Object.entries(attrs).forEach(([key,value])=>item.setAttribute(key,value));return item}
+const defs=element('defs');const marker=element('marker',{id:'arrow',viewBox:'0 0 10 10',refX:'9',refY:'5',markerWidth:'6',markerHeight:'6',orient:'auto-start-reverse'});marker.appendChild(element('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'#a9b7c7'}));defs.appendChild(marker);svg.appendChild(defs);
+const edgeLayer=element('g',{class:'kg-edge-layer'}),nodeLayer=element('g',{class:'kg-node-layer'});svg.append(edgeLayer,nodeLayer);
+
+graph.edges.forEach((edge,index)=>{const source=nodeMap.get(edge.source),target=nodeMap.get(edge.target);if(!source||!target)return;const line=element('line',{x1:source.x,y1:source.y,x2:target.x,y2:target.y,'data-source':edge.source,'data-target':edge.target,'data-index':index,'marker-end':'url(#arrow)'});const title=element('title');title.textContent=`${source.label} ${edge.relation} ${target.label} · 置信度 ${Math.round(edge.confidence*100)}%`;line.appendChild(title);edgeLayer.appendChild(line)});
+graph.nodes.forEach(node=>{const group=element('g',{class:`kg-node ${node.type}`,transform:`translate(${node.x} ${node.y})`,'data-id':node.id,'data-type':node.type,tabindex:'0',role:'button'});group.appendChild(element('rect',{x:-82,y:-31,width:164,height:62,rx:7}));group.appendChild(element('circle',{cx:-65,cy:-13,r:5,fill:colors[node.type]}));const typeText=element('text',{x:-54,y:-9,class:'kg-node-type'});typeText.textContent=node.type_label;group.appendChild(typeText);const label=element('text',{x:0,y:13,class:'kg-node-label','text-anchor':'middle'});label.textContent=node.label.length>17?node.label.slice(0,16)+'…':node.label;group.appendChild(label);group.addEventListener('click',()=>showDetail(node.id));group.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();showDetail(node.id)}});nodeLayer.appendChild(group)});
+
+function setView(){svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`)}setView();
+svg.addEventListener('wheel',event=>{event.preventDefault();const factor=event.deltaY>0?1.12:.89;const nextW=Math.max(620,Math.min(1800,view.w*factor)),nextH=nextW*(view.h/view.w);const rect=svg.getBoundingClientRect(),px=(event.clientX-rect.left)/rect.width,py=(event.clientY-rect.top)/rect.height;view.x+=(view.w-nextW)*px;view.y+=(view.h-nextH)*py;view.w=nextW;view.h=nextH;setView()},{passive:false});
+svg.addEventListener('pointerdown',event=>{if(event.target.closest('.kg-node'))return;drag={x:event.clientX,y:event.clientY,vx:view.x,vy:view.y};svg.setPointerCapture(event.pointerId)});
+svg.addEventListener('pointermove',event=>{if(!drag)return;const rect=svg.getBoundingClientRect();view.x=drag.vx-(event.clientX-drag.x)*view.w/rect.width;view.y=drag.vy-(event.clientY-drag.y)*view.h/rect.height;setView()});
+svg.addEventListener('pointerup',()=>drag=null);
+
+function showDetail(id){const node=nodeMap.get(id);document.querySelectorAll('.kg-node.selected').forEach(item=>item.classList.remove('selected'));document.querySelector(`.kg-node[data-id="${id}"]`)?.classList.add('selected');document.getElementById('detailEmpty').hidden=true;document.getElementById('detailContent').hidden=false;document.getElementById('detailType').textContent=node.type_label;document.getElementById('detailLabel').textContent=node.label;document.getElementById('detailDescription').textContent=node.description;const evidence=document.getElementById('detailEvidence');evidence.replaceChildren(document.createTextNode(node.evidence||'由图谱关系和规则联合推断'));if(node.case_id){const form=document.createElement('form');form.method='post';form.action=`/knowledge-graph/cases/${node.case_id}/delete`;form.style.marginTop='12px';form.addEventListener('submit',event=>{if(!window.confirm(`确定删除审核案例“${node.label}”吗？该案例将从知识图谱和检索知识库中移除。`))event.preventDefault()});const button=document.createElement('button');button.type='submit';button.className='btn btn-danger';button.textContent='删除该审核案例';form.appendChild(button);evidence.appendChild(form)}const relations=graph.edges.filter(edge=>edge.source===id||edge.target===id);document.getElementById('detailRelations').innerHTML=relations.map(edge=>{const outgoing=edge.source===id,other=nodeMap.get(outgoing?edge.target:edge.source);return `<div><span>${outgoing?'→':'←'} ${edge.relation}</span><strong>${other.label}</strong><em>${Math.round(edge.confidence*100)}%</em></div>`}).join('')||'<div>暂无关联关系</div>'}
+
+function applyVisibility(){document.querySelectorAll('.kg-node').forEach(item=>item.classList.toggle('type-hidden',!activeTypes.has(item.dataset.type)));document.querySelectorAll('.kg-edge-layer line').forEach(line=>{const source=nodeMap.get(line.dataset.source),target=nodeMap.get(line.dataset.target);line.classList.toggle('type-hidden',!activeTypes.has(source.type)||!activeTypes.has(target.type))})}
+document.querySelectorAll('#graphFilters button').forEach(button=>button.addEventListener('click',()=>{button.classList.toggle('active');button.classList.contains('active')?activeTypes.add(button.dataset.type):activeTypes.delete(button.dataset.type);applyVisibility()}));
+document.getElementById('graphSearch').addEventListener('input',event=>{const query=event.target.value.trim().toLowerCase();document.querySelectorAll('.kg-node').forEach(item=>{const node=nodeMap.get(item.dataset.id),matched=!query||`${node.label} ${node.description} ${node.evidence}`.toLowerCase().includes(query);item.classList.toggle('search-muted',!matched)});});
+
+function highlightPath(key){document.querySelectorAll('.kg-node,.kg-edge-layer line').forEach(item=>item.classList.remove('path-active','path-muted'));document.querySelectorAll('[data-path]').forEach(item=>item.classList.remove('active'));if(key==='clear'){activePath=[];document.getElementById('pathSummary').textContent='选择一个故障现象，系统将高亮“现象 → 原因 → 检测 → 标准 → 处置”最可信路径。';return}const path=graph.paths[key];activePath=path.nodes;document.querySelector(`[data-path="${key}"]`).classList.add('active');document.querySelectorAll('.kg-node').forEach(item=>item.classList.add(activePath.includes(item.dataset.id)?'path-active':'path-muted'));document.querySelectorAll('.kg-edge-layer line').forEach(line=>{const si=activePath.indexOf(line.dataset.source),ti=activePath.indexOf(line.dataset.target),active=si>=0&&ti===si+1;line.classList.add(active?'path-active':'path-muted')});document.getElementById('pathSummary').innerHTML=`<strong>${path.title}</strong><span>${path.conclusion}</span>`;showDetail(activePath[0])}
+document.querySelectorAll('[data-path]').forEach(button=>button.addEventListener('click',()=>highlightPath(button.dataset.path)));
+</script>
+{% endblock %}

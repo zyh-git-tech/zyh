@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}智能驾驶舱{% endblock %}
+{% block top_title %}工业检修运营驾驶舱{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>设备检修态势总览</h1><p>把知识检索、风险发现、工单执行和经验沉淀汇总到一个运营闭环。</p></div>
+  <a class="btn btn-primary" href="{{ url_for('diagnosis') }}">＋ 发起智能诊断</a>
+</div>
+
+<div class="grid grid-4">
+  <div class="panel metric"><div class="metric-label">接入设备型号</div><div class="metric-value">{{ stats.equipment }}</div><div class="metric-foot">● 本地台账正常</div></div>
+  <div class="panel metric" style="--metric-bg:#e9f8f1"><div class="metric-label">可信知识条目</div><div class="metric-value">{{ stats.knowledge }}</div><div class="metric-foot">手册 + 审核案例</div></div>
+  <div class="panel metric" style="--metric-bg:#fff1dc"><div class="metric-label">执行中工单</div><div class="metric-value">{{ stats.active_orders }}</div><div class="metric-foot">闭环率 {{ stats.completion_rate }}%</div></div>
+  <div class="panel metric" style="--metric-bg:#efeaff"><div class="metric-label">诊断平均置信度</div><div class="metric-value">{{ stats.avg_confidence }}%</div><div class="metric-foot">证据链全程可追溯</div></div>
+</div>
+
+<div class="grid grid-3" style="margin-top:18px">
+  <section class="panel" style="grid-column:span 2">
+    <div class="panel-head"><h2>检修任务看板</h2><a href="{{ url_for('work_orders') }}" class="tag">查看全部 →</a></div>
+    {% if orders %}<div class="table-wrap"><table>
+      <thead><tr><th>工单</th><th>设备 / 负责人</th><th>优先级</th><th>进度</th><th>状态</th></tr></thead>
+      <tbody>{% for order in orders %}<tr>
+        <td><a href="{{ url_for('work_order_detail', order_id=order.id) }}"><strong>{{ order.order_no }}</strong><br><span class="hint">{{ order.title[:24] }}</span></a></td>
+        <td>{{ order.device_model }}<br><span class="hint">{{ order.assignee }}</span></td>
+        <td><span class="badge {% if order.priority == 'P1' %}danger{% elif order.priority == 'P2' %}warning{% else %}info{% endif %}">{{ order.priority }}</span></td>
+        <td style="min-width:140px"><div class="progress"><span style="width:{{ order.progress }}%"></span></div><span class="hint">{{ order.progress }}%</span></td>
+        <td><span class="badge {% if order.status == '已完成' %}safe{% elif order.status == '执行中' %}info{% else %}warning{% endif %}">{{ order.status }}</span></td>
+      </tr>{% endfor %}</tbody>
+    </table></div>{% else %}<div class="empty">暂无工单</div>{% endif %}
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2>价值量化</h2><span class="badge purple">商业指标</span></div>
+    <div class="panel-body">
+      <div style="font-size:13px;color:var(--muted)">预计避免停机损失</div><div style="font-size:34px;font-weight:800;margin:4px 0 18px">¥ {{ "{:,}".format(stats.saving) }}</div>
+      <div class="list-item"><div style="display:flex;justify-content:space-between"><span>平均检索耗时</span><strong>&lt; 1 秒</strong></div></div>
+      <div class="list-item"><div style="display:flex;justify-content:space-between"><span>高风险诊断</span><strong style="color:var(--danger)">{{ stats.high_risk }} 条</strong></div></div>
+      <div class="list-item"><div style="display:flex;justify-content:space-between"><span>离线可用能力</span><strong style="color:var(--safe)">100%</strong></div></div>
+      <p class="hint">价值口径：工单预计节省 × 闭环任务，适合在答辩中展示 ROI。</p>
+    </div>
+  </section>
+</div>
+
+<div class="grid grid-2" style="margin-top:18px">
+  <section class="panel"><div class="panel-head"><h2>近期诊断追溯</h2><a href="{{ url_for('diagnosis') }}" class="tag">新建</a></div><div class="panel-body">
+    {% if diagnoses %}<ul class="list">{% for item in diagnoses %}<li class="list-item"><div style="display:flex;justify-content:space-between;gap:12px"><div><strong>{{ item.trace_id }}</strong><div class="hint">{{ item.device_model or '通用设备' }} · {{ item.query_text[:40] }}</div></div><span class="badge {% if item.risk_level == '高风险' %}danger{% elif item.risk_level == '中风险' %}warning{% else %}safe{% endif %}">{{ item.risk_level }}</span></div></li>{% endfor %}</ul>{% else %}<div class="empty"><div class="empty-icon">◎</div>完成一次诊断后，追溯记录会出现在这里。</div>{% endif %}
+  </div></section>
+  <section class="panel"><div class="panel-head"><h2>“五环一体”创新架构</h2><span class="badge info">项目亮点</span></div><div class="panel-body">
+    <div class="timeline">
+      <div class="timeline-item"><span class="timeline-dot"></span><strong>感知</strong><div class="hint">文本、故障图片与设备型号融合</div></div>
+      <div class="timeline-item"><span class="timeline-dot"></span><strong>检索</strong><div class="hint">手册 + 审核案例的中文混合召回</div></div>
+      <div class="timeline-item"><span class="timeline-dot"></span><strong>决策</strong><div class="hint">风险分级、置信度与引用证据</div></div>
+      <div class="timeline-item"><span class="timeline-dot"></span><strong>执行</strong><div class="hint">一键生成工单、SOP 与参数红线卡点</div></div>
+      <div class="timeline-item" style="padding-bottom:0"><span class="timeline-dot"></span><strong>进化</strong><div class="hint">专家审核和纠偏数据持续沉淀</div></div>
+    </div>
+  </div></section>
+</div>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}参数红线复核{% endblock %}
+{% block top_title %}工业参数智能复核{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>实测参数红线校验</h1><p>把演示参数范围转成机器可执行规则，现场录值即判定，超差自动阻断。</p></div><div class="chips"><span class="badge safe">{{ rules|length }} 项规则已启用</span><form method="post" action="{{ url_for('reset_compliance') }}"><button class="btn btn-outline" type="submit">重置结果</button></form></div></div>
+<div class="grid grid-2">
+  <section class="panel"><div class="panel-head"><h2>输入实测值</h2><span class="badge info">实时判定</span></div><div class="panel-body">
+    <div class="form-group"><label class="form-label">校验参数</label><select id="ruleKey" class="select">{% for key, rule in rules.items() %}<option value="{{ key }}" {% if check_state and check_state.rule_key == key %}selected{% endif %}>{{ rule.name }}（{{ rule.unit }}）</option>{% endfor %}</select></div>
+    <div class="form-group"><label class="form-label">实测数值</label><input id="ruleValue" class="input" type="number" step="any" value="{{ check_state.value if check_state else '' }}" placeholder="输入仪器读数"></div>
+    <button class="btn btn-primary btn-block" onclick="checkValue()">✓ 执行红线复核</button><div id="checkResult" style="margin-top:16px">{% if check_state %}{% set result = check_state.result %}<div class="risk-banner {{ result.severity }}"><div><small>{{ result.source }}</small><h2 style="margin:4px 0">{{ result.status }} · {{ result.name }}</h2><div>{{ result.message }}</div></div><div class="risk-score">{{ result.value }}<small style="font-size:12px"> {{ result.unit }}</small></div></div>{% endif %}</div>
+  </div></section>
+  <section class="panel"><div class="panel-head"><h2>规则库</h2><span class="badge purple">手册结构化</span></div><div class="panel-body"><ul class="list">{% for key, rule in rules.items() %}<li class="list-item"><div style="display:flex;justify-content:space-between;gap:15px"><div><strong>{{ rule.name }}</strong><div class="hint">{{ rule.source }}</div></div><span class="badge info">{{ rule.min }}–{{ rule.max }} {{ rule.unit }}</span></div></li>{% endfor %}</ul></div></section>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+async function checkValue(){const box=document.getElementById('checkResult');const value=document.getElementById('ruleValue').value;if(value===''){box.innerHTML='<div class="flash warning">请输入实测值。</div>';return;}const response=await fetch('{{ url_for("parameter_check") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rule_key:document.getElementById('ruleKey').value,value})});const data=await response.json();if(data.status==='success'){const r=data.result;box.innerHTML=`<div class="risk-banner ${r.severity}"><div><small>${r.source}</small><h2 style="margin:4px 0">${r.status} · ${r.name}</h2><div>${r.message}</div></div><div class="risk-score">${r.value}<small style="font-size:12px"> ${r.unit}</small></div></div>`}else{box.innerHTML=`<div class="flash warning">${data.message}</div>`}}
+</script>{% endblock %}

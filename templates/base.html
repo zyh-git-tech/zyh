@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}工擎智维{% endblock %} · 工业设备多模态检修平台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="{{ url_for('dashboard') }}">
+      <span class="brand-mark">◈</span>
+      <span><strong>工擎智维</strong><small>Industrial Copilot</small></span>
+    </a>
+    <nav>
+      <div class="nav-title">运营中心</div>
+      <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><span class="nav-icon">▦</span>智能驾驶舱</a>
+      <a class="nav-link {% if request.endpoint in ['agent_workspace','run_agent_workspace','create_agent_work_order'] %}active{% endif %}" href="{{ url_for('agent_workspace') }}"><span class="nav-icon">✦</span>Agent 工作台</a>
+      <a class="nav-link {% if request.endpoint == 'diagnosis' %}active{% endif %}" href="{{ url_for('diagnosis') }}"><span class="nav-icon">◎</span>多模态诊断</a>
+      <a class="nav-link {% if request.endpoint == 'predictive_maintenance' %}active{% endif %}" href="{{ url_for('predictive_maintenance') }}"><span class="nav-icon">⌁</span>健康预测孪生</a>
+      <a class="nav-link {% if request.endpoint in ['work_orders','work_order_detail'] %}active{% endif %}" href="{{ url_for('work_orders') }}"><span class="nav-icon">☑</span>闭环工单</a>
+      <div class="nav-title">知识与规范</div>
+      <a class="nav-link {% if request.endpoint == 'show_sop' %}active{% endif %}" href="{{ url_for('show_sop') }}"><span class="nav-icon">≡</span>智能 SOP</a>
+      <a class="nav-link {% if request.endpoint == 'compliance' %}active{% endif %}" href="{{ url_for('compliance') }}"><span class="nav-icon">✓</span>参数红线复核</a>
+      <a class="nav-link {% if request.endpoint == 'knowledge_graph' %}active{% endif %}" href="{{ url_for('knowledge_graph') }}"><span class="nav-icon">⌘</span>故障知识图谱</a>
+      <div class="nav-title">持续学习</div>
+      <a class="nav-link {% if request.endpoint == 'upload_experience' %}active{% endif %}" href="{{ url_for('upload_experience') }}"><span class="nav-icon">↑</span>案例回填</a>
+      <a class="nav-link {% if request.endpoint == 'audit_panel' %}active{% endif %}" href="{{ url_for('audit_panel') }}"><span class="nav-icon">◇</span>专家治理台</a>
+    </nav>
+    <div class="side-status">
+      <div class="status-line"><span class="pulse"></span>本地可信模式在线</div>
+      <small>手册、规则与审核案例可离线运行</small>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-title"><strong>{% block top_title %}设备检修智能体{% endblock %}</strong><span>多模态感知 · RAG 检索 · 作业闭环</span></div>
+      <div class="top-actions"><span class="tag">LoongArch Ready</span><span class="tag">版本 v4.0</span></div>
+    </header>
+    <div class="content">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+      <div class="footer-note">工擎智维 · 面向工业现场的可解释多模态检修作业系统</div>
+    </div>
+  </main>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

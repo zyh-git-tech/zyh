@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Agent 工作台{% endblock %}
+{% block top_title %}多模态检修 Agent 工作台{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>多模态设备检修 Agent</h1><p>本地确定性工具编排：感知、检索、校验、决策与工单确认全程可追溯。</p></div>
+  <div class="chips"><span class="tag">离线工具模式</span>{% if run_record %}<span class="tag">{{ run_record.trace_id }}</span>{% endif %}</div>
+</div>
+
+<div class="agent-layout">
+  <section class="panel agent-input-panel">
+    <div class="panel-head"><h2>任务输入</h2><span class="badge info">文本 + 图像 + 时序</span></div>
+    <div class="panel-body">
+      <form action="{{ url_for('run_agent_workspace') }}" method="post" enctype="multipart/form-data">
+        <div class="form-group"><label class="form-label">设备型号</label><select class="select" name="device_model"><option value="">通用设备</option>{% for eq in equipments %}<option value="{{ eq.model }}" {% if selected_model == eq.model %}selected{% endif %}>{{ eq.name }}（{{ eq.model }}）</option>{% endfor %}</select></div>
+        <div class="form-group"><label class="form-label">现场故障描述 <small>描述工况、现象和已知实测值</small></label><textarea class="textarea" name="query_text" placeholder="例如：冷机启动困难，怠速抖动并冒黑烟，火花塞间隙疑似超差……">{{ query_text }}</textarea></div>
+        <div class="form-group"><label class="form-label">故障图片 <small>可选</small></label><div class="file-drop"><input type="file" name="fault_image" accept=".jpg,.jpeg,.jfif,.png,.webp,.bmp,image/*"><div class="hint">Agent 将调用图像像素分析工具，输出候选缺陷和视觉置信度。</div></div></div>
+        <div class="form-group"><label class="form-label">传感器 CSV <small>可选</small></label><div class="file-drop"><input type="file" name="sensor_file" accept=".csv"><div class="hint">字段：hour, temperature, vibration, pressure。</div></div></div>
+        <label class="agent-check"><input type="checkbox" name="use_demo_sensor" value="1" checked> 使用内置退化基线演示时序工具</label>
+        <button class="btn btn-primary btn-block" type="submit">✦ 启动 Agent 任务</button>
+      </form>
+      <div class="agent-flow"><span>输入</span><b>→</b><span>工具选择</span><b>→</b><span>证据融合</span><b>→</b><span>人工确认</span></div>
+    </div>
+  </section>
+
+  <div class="agent-main">
+    {% if run_data %}
+    <section class="panel">
+      <div class="panel-head"><h2>工具调用轨迹</h2><span class="badge safe">{{ run_data.status }}</span></div>
+      <div class="panel-body agent-trace">
+        {% for step in run_data.steps %}
+        <div class="agent-step {{ step.status }}"><div class="agent-step-marker">{% if step.status == 'completed' %}✓{% elif step.status == 'failed' %}!{% else %}–{% endif %}</div><div class="agent-step-content"><div class="agent-step-top"><strong>{{ loop.index }}. {{ step.label }}</strong><span>{{ step.duration_ms }} ms</span></div><small><b>{{ step.tool }}</b> · {{ step.input_summary }}</small><p>{{ step.output_summary }}</p></div></div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="risk-banner {{ run_data.diagnosis.risk_class }} agent-risk"><div><div style="opacity:.8">Agent 综合结论</div><h2 style="margin:4px 0">{{ run_data.diagnosis.risk_level }}</h2><div style="opacity:.82">置信度 {{ (run_data.diagnosis.confidence * 100)|round|int }}% · 追溯号 {{ run_data.trace_id }}</div></div><div class="risk-score">{{ run_data.diagnosis.risk_score }}<small style="font-size:13px"> /100</small></div></section>
+
+    <div class="grid grid-2">
+      <section class="panel"><div class="panel-head"><h3>原因链与处置计划</h3><span class="badge purple">可解释</span></div><div class="panel-body"><ul class="list">{% for cause in run_data.diagnosis.causes %}<li class="list-item">{{ loop.index }}. {{ cause }}</li>{% endfor %}</ul><div class="timeline agent-plan">{% for item in run_data.diagnosis.plan %}<div class="timeline-item"><span class="timeline-dot"></span>{{ item }}</div>{% endfor %}</div></div></section>
+      <section class="panel"><div class="panel-head"><h3>参数红线状态</h3><span class="badge warning">需确认</span></div><div class="panel-body">{% for item in run_data.diagnosis.redline_checks %}<div class="agent-redline"><div><strong>{{ item.result.name }}</strong><small>{{ item.result.message }}</small></div><span class="badge {{ item.result.severity }}">{{ item.result.status }}</span></div>{% endfor %}</div></section>
+    </div>
+
+    {% if run_data.image_result %}<section class="panel"><div class="panel-head"><h3>视觉工具输出</h3><span class="badge info">{{ run_data.image_result.quality_status }}</span></div><div class="panel-body"><div class="agent-media"><div>{% if run_data.image_filename %}<img class="image-preview" src="{{ url_for('static', filename='uploads/' + run_data.image_filename) }}" alt="现场图片">{% endif %}</div><div><div class="grid grid-3">{% for key, label in [('brightness','亮度'),('dark_ratio','深色区域'),('rust_ratio','氧化色域'),('texture','纹理强度'),('sharpness','清晰度')] %}<div class="metric-mini"><strong>{{ run_data.image_result.metrics[key] }}{% if key in ['dark_ratio','rust_ratio'] %}%{% endif %}</strong><span>{{ label }}</span></div>{% endfor %}</div><p class="vision-summary">{{ run_data.image_result.summary }}</p></div></div></div></section>{% endif %}
+
+    {% if run_data.sensor_result %}<section class="panel"><div class="panel-head"><h3>时序工具输出</h3><span class="badge info">{{ run_data.sensor_result.maintenance_window }}</span></div><div class="panel-body"><p class="vision-summary">{{ run_data.sensor_result.summary }}</p><div class="grid grid-3">{% for key, metric in run_data.sensor_result.metrics.items() %}<div class="metric-mini"><strong>{{ metric.current }} {{ metric.unit }}</strong><span>{{ metric.name }} · {{ metric.status }}</span></div>{% endfor %}</div></div></section>{% endif %}
+
+    <section class="panel"><div class="panel-head"><h3>知识证据与智能建议</h3><span class="badge safe">{{ run_data.evidence|length }} 条证据</span></div><div class="panel-body"><div class="answer">{{ run_data.diagnosis.answer }}</div><div class="source-list">{% for doc in run_data.evidence %}<div class="source-card"><div class="source-top"><strong>{{ doc.source }}</strong>{% if doc.score %}<span class="badge info">相关度 {{ (doc.score * 100)|round|int }}%</span>{% endif %}</div><p>{{ doc.text }}</p></div>{% endfor %}</div></div></section>
+
+    <section class="panel"><div class="panel-head"><h3>工单草稿</h3><span class="badge warning">等待人工确认</span></div><div class="panel-body"><div class="receipt-main"><div><small>任务标题</small><strong>{{ run_data.work_order_draft.title }}</strong></div><div><small>优先级</small><strong>{{ run_data.work_order_draft.priority }}</strong></div><div><small>预计工时</small><strong>{{ run_data.work_order_draft.planned_hours }} h</strong></div><div><small>预计节省</small><strong>¥{{ run_data.work_order_draft.estimated_saving }}</strong></div></div><div class="agent-order-steps">{% for item in run_data.work_order_draft.steps %}<span>{{ loop.index }}. {{ item.title }}</span>{% endfor %}</div><form method="post" action="{{ url_for('create_agent_work_order') }}" class="agent-actions"><input type="hidden" name="run_id" value="{{ run_record.id }}"><button class="btn btn-success" type="submit">✓ 确认并生成检修工单</button><a class="btn btn-outline" href="{{ url_for('diagnosis') }}">返回传统诊断</a></form></div></section>
+    {% else %}
+    <section class="panel agent-empty"><div class="empty"><div class="empty-icon">✦</div><h2>等待 Agent 任务</h2><p>填写故障描述，上传图片或使用内置传感器样例，开始一次可追溯的工具编排。</p><div class="grid grid-4" style="margin-top:24px;text-align:left"><div class="metric-mini"><strong>01</strong><span>感知</span></div><div class="metric-mini"><strong>02</strong><span>检索</span></div><div class="metric-mini"><strong>03</strong><span>校验</span></div><div class="metric-mini"><strong>04</strong><span>执行</span></div></div></div></section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
