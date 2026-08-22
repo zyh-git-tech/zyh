@@ -16,13 +16,18 @@ from models import (
     db, AgentRun, DiagnosisRecord, Equipment, LlmLabeledFeedback, MaintCase,
     PredictiveAnalysis, SopStep, SopTemplate, WorkOrder, WorkOrderStep,
 )
-from predictive_service import SENSOR_RULES, analyze_series, demo_series, parse_csv, parse_csv_with_profile
+from predictive_service import SENSOR_RULES, analyze_series, demo_series, parse_csv_with_profile
 from standards_service import STANDARD_RULES, check_parameter
 from vector_service import VectorService
 
 
 app = Flask(__name__)
-app.secret_key = os.getenv("APP_SECRET_KEY") or secrets.token_hex(32)
+app_env = os.getenv("APP_ENV", "development").lower()
+configured_secret = os.getenv("APP_SECRET_KEY", "").strip()
+if app_env == "production" and not configured_secret:
+    raise RuntimeError("APP_SECRET_KEY must be set when APP_ENV=production")
+app.secret_key = configured_secret or secrets.token_hex(32)
+app.config["APP_VERSION"] = os.getenv("APP_VERSION", "0.2.0")
 
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.abspath(os.path.dirname(sys.executable))
@@ -115,6 +120,8 @@ agent_engine = AgentOrchestrator(vector_engine, image_engine, build_profile)
 
 @app.before_request
 def ensure_demo_data():
+    if request.endpoint == "healthcheck":
+        return
     db.create_all()
     if Equipment.query.count() == 0:
         db.session.add_all([
@@ -231,6 +238,8 @@ def create_agent_work_order():
 @app.before_request
 def ensure_remaining_demo_data():
     """保留原项目的演示 SOP 与工单初始化逻辑。"""
+    if request.endpoint == "healthcheck":
+        return
     if SopTemplate.query.count() == 0:
         template = SopTemplate(
             equipment_model="ZONTES-250", maint_level="日常检修",
@@ -354,6 +363,26 @@ def diagnosis():
         image_result=image_result, image_filename=image_filename, profile=profile,
         diagnosis_record=diagnosis_record,
     )
+
+
+@app.route("/healthz")
+def healthcheck():
+    """轻量健康检查，供本地探活和 Render 使用。"""
+    try:
+        db.create_all()
+        db.session.execute(db.text("SELECT 1"))
+        return jsonify({
+            "status": "ok",
+            "version": app.config["APP_VERSION"],
+            "database": "ok",
+        })
+    except Exception as exc:
+        app.logger.warning("healthcheck database failure: %s", exc)
+        return jsonify({
+            "status": "degraded",
+            "version": app.config["APP_VERSION"],
+            "database": "error",
+        }), 503
 
 
 @app.route("/diagnosis/reset", methods=["POST"])
@@ -701,6 +730,6 @@ def submit_correction():
 if __name__ == "__main__":
     app.run(
         host=os.getenv("APP_HOST", "127.0.0.1"),
-        port=int(os.getenv("APP_PORT", "5000")),
+        port=int(os.getenv("PORT") or os.getenv("APP_PORT", "5000")),
         debug=os.getenv("FLASK_DEBUG") == "1",
     )

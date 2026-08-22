@@ -19,11 +19,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-dev.txt
+      - name: Ruff lint
+        run: python -m ruff check .
       - name: Compile Python modules
         run: python -m compileall -q app.py agent_service.py image_service.py knowledge_graph_service.py models.py predictive_service.py standards_service.py vector_service.py
       - name: Run smoke test
         run: python smoke_test.py
+      - name: Run pytest with coverage
+        run: python -m pytest --cov=app --cov=agent_service --cov=image_service --cov=predictive_service --cov=standards_service --cov=vector_service
+      - name: Run synthetic benchmark
+        run: python evaluate_demo.py
       - name: Check staged-style whitespace
         run: git diff --check
       - name: Audit tracked release files
@@ -31,5 +37,9 @@ jobs:
         run: |
           if git ls-files | grep -E '(^|/)(maintenance\.db|.*\.sqlite3?|摩托车发动机维修手册\.pdf|build/|\.venv/|static/uploads/[^.]|.*\.log$)'; then
             echo "A local-only file is tracked"
+            exit 1
+          fi
+          if git grep -n -I -E '([A-Za-z]:\\\\Users\\\\|/Users/|/home/)' -- ':!README.md' ':!docs/**' ':!.github/workflows/ci.yml'; then
+            echo "An absolute local path is present in tracked source"
             exit 1
           fi

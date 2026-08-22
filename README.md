@@ -1,21 +1,52 @@
 # 工擎智维：工业设备多模态智能检修平台
 
-> **English summary:** Gongjing Zhiwei is a local-first Flask demo for multimodal equipment inspection. It combines image inspection, sensor trend analysis, retrieval, rule checks, explainable diagnosis, knowledge graphs, and work-order execution in one traceable workflow.
+[![CI](https://github.com/zyh-git-tech/zyh/actions/workflows/ci.yml/badge.svg)](https://github.com/zyh-git-tech/zyh/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-工擎智维是一个本地优先的工业设备检修演示平台。它把故障图片、文本现象、传感器 CSV、合成检修知识、参数红线和电子工单串成一条可追溯的数字线程，适合课程设计、技术展示和本地原型验证。
+> **English summary:** Gongjing Zhiwei is a local-first Flask portfolio demo for multimodal equipment inspection. It combines image inspection, sensor trend analysis, retrieval, executable rule checks, explainable diagnosis, knowledge graphs, and work-order execution in one traceable workflow.
 
-本项目使用合成演示知识和演示参数规则，不代表任何厂商的真实维修规范，也不替代现场安全流程、设备手册或专业人员判断。
+## 项目定位
+
+工擎智维是一个面向工业设备检修的本地优先演示平台。它把故障图片、文本现象、传感器 CSV、合成检修知识、参数红线和电子工单串成一条可追溯的数字线程。
+
+这个项目重点展示三类能力：
+
+- **AI/算法**：图像质量门控、颜色/纹理候选检测、传感器趋势拟合、关键词检索和多模态证据融合。
+- **后端工程**：Flask 路由、SQLAlchemy 数据模型、可追溯 Agent 轨迹、错误降级、健康检查和 CI 质量门禁。
+- **业务落地**：预测维护、参数红线、知识图谱、专家审核和诊断到工单的闭环流程。
+
+所有知识、规则、图片和 CSV 均为合成演示素材，不代表任何真实厂商规范，也不替代现场安全流程、设备手册或专业人员判断。
+
+## 5 分钟演示
+
+1. 启动应用并打开 <http://127.0.0.1:5000/agent>。
+2. 输入“冷机启动困难，火花塞发黑，伴随异响”，上传 `tests/fixtures/engine_sample.ppm`。
+3. 勾选内置传感器退化基线，运行 Agent。
+4. 查看六步工具轨迹、图片候选区域、趋势风险、检索证据和参数红线。
+5. 点击生成工单，完成第一步签核，再到工单中心查看进度。
+
+完整讲解稿见 [`docs/demo-script.md`](docs/demo-script.md)，系统数据流见 [`docs/architecture.md`](docs/architecture.md)。
 
 ## 功能
 
-- **多模态诊断**：从图片提取亮度、沉积比例、纹理和风险特征。
-- **本地 Agent 工作台**：编排图片分析、传感器趋势、知识检索、红线校验、融合诊断和工单草稿。
-- **可解释检索**：返回匹配证据、命中词、风险等级和原因链。
-- **预测性维护**：分析温度、振动、压力时序，估计风险窗口。
-- **参数红线复核**：将演示规则转为机器可执行的范围检查。
-- **知识图谱**：展示现象、原因、检测、标准、处置和案例之间的关系。
-- **闭环工单**：从诊断或预测结果生成工单，支持步骤签核和进度追踪。
-- **离线优先**：未配置云端模型时，系统自动使用本地确定性诊断。
+- 多模态诊断：从图片提取亮度、沉积比例、纹理和风险特征。
+- 本地 Agent 工作台：编排图片分析、传感器趋势、知识检索、红线校验、融合诊断和工单草稿。
+- 可解释检索：返回匹配证据、命中词、来源和分数。
+- 预测性维护：分析温度、振动、压力时序，估计风险窗口。
+- 参数红线复核：将演示规则转为机器可执行的范围检查。
+- 知识图谱：展示现象、原因、检测、标准、处置和案例关系。
+- 闭环工单：从诊断或预测结果生成工单，支持步骤签核和进度追踪。
+- 离线优先：未配置云端模型时自动使用本地确定性诊断。
+
+## 工程亮点
+
+- 每次 Agent 运行生成 trace id，并保存工具步骤、输入摘要、输出摘要和耗时。
+- 图片、传感器、检索、红线和融合诊断任一节点失败时保留轨迹并继续可用流程。
+- `/healthz` 提供数据库探活和版本信息，可直接接入 Render 健康检查。
+- `evaluate_demo.py` 提供合成基准，当前基线包含风险准确率、原因 Macro-F1 和降级通过率。
+- GitHub Actions 在 Python 3.11/3.12 上执行编译、测试、评测和敏感文件审计。
 
 ## 快速开始
 
@@ -38,19 +69,17 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-浏览器访问 <http://127.0.0.1:5000>。
+浏览器访问 <http://127.0.0.1:5000>。首次访问会自动创建 SQLite 数据库和演示设备数据。
 
-首次访问会自动创建 SQLite 数据库和演示设备数据。数据库、上传文件和运行日志均为本地运行产物，不会作为公开仓库内容提交。
+### 生产 WSGI
 
-## Agent 演示
-
-打开 <http://127.0.0.1:5000/agent>，输入故障现象，可选上传图片和传感器 CSV，也可以勾选内置退化基线。一次运行会依次执行：
-
-```text
-图片分析 -> 传感器趋势 -> 知识检索 -> 参数红线 -> 融合诊断 -> 工单草稿
+```bash
+gunicorn --workers 1 --timeout 120 --bind 0.0.0.0:${PORT:-5000} app:app
 ```
 
-传感器 CSV 需要包含以下四列：
+## Agent 输入格式
+
+传感器 CSV 必须包含以下四列：
 
 ```csv
 hour,temperature,vibration,pressure
@@ -60,36 +89,20 @@ hour,temperature,vibration,pressure
 12,72.8,3.1,291
 ```
 
-完整样例位于 `static/samples/final_demo_sensor.csv`。
+公开样例位于 `static/samples/final_demo_sensor.csv`，合成图片位于 `tests/fixtures/engine_sample.ppm`。
 
-## 可选云端模型
-
-复制 `.env.example` 中的变量到当前终端或部署环境。默认不需要密钥即可运行本地模式。
+## 合成评测
 
 ```powershell
-$env:APP_SECRET_KEY="replace-with-a-random-value"
-$env:LLM_API_KEY="your-api-key"
-$env:LLM_API_URL="https://api.openai.com/v1/chat/completions"
-$env:LLM_MODEL="gpt-4o-mini"
-.\.venv\Scripts\python.exe app.py
+.\.venv\Scripts\python.exe evaluate_demo.py
+.\.venv\Scripts\python.exe evaluate_demo.py --json
 ```
 
-应用配置：
+评测集位于 `data/demo_eval_cases.json`，覆盖文本、图片、传感器、多模态和错误输入降级。它用于验证行为稳定性，不代表真实工业准确率。
 
-| 变量 | 默认值 | 用途 |
-| --- | --- | --- |
-| `APP_SECRET_KEY` | 每次启动随机生成 | Flask 会话签名 |
-| `DATABASE_URL` | `sqlite:///maintenance.db` | 数据库连接 |
-| `APP_HOST` | `127.0.0.1` | 监听地址 |
-| `APP_PORT` | `5000` | 监听端口 |
-| `FLASK_DEBUG` | `0` | 本地调试开关 |
-| `LLM_API_KEY` | 空 | 可选云端模型密钥 |
-| `LLM_API_URL` | OpenAI 兼容地址 | 模型接口地址 |
-| `LLM_MODEL` | `gpt-4o-mini` | 模型名称 |
+## 页面和 API
 
-## 页面入口
-
-| 页面 | 地址 |
+| 页面或接口 | 地址 |
 | --- | --- |
 | 运营驾驶舱 | `/` |
 | Agent 工作台 | `/agent` |
@@ -99,43 +112,48 @@ $env:LLM_MODEL="gpt-4o-mini"
 | 知识图谱 | `/knowledge-graph` |
 | 工单中心 | `/work-orders` |
 | 专家治理 | `/admin/audit` |
+| 健康检查 | `GET /healthz` |
+| 参数检查 API | `POST /api/parameter-check` |
 
-## 测试
+## 可选云端模型
+
+默认不需要密钥即可运行本地模式。复制 `.env.example` 后按需配置 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`。在线 Demo 默认不启用云端模型，避免密钥暴露和调用成本。
+
+主要配置：`APP_SECRET_KEY`、`DATABASE_URL`、`APP_HOST`、`APP_PORT`、`PORT`、`APP_VERSION`、`FLASK_DEBUG`、`LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`。
+
+## Render 部署
+
+仓库提供 [`render.yaml`](render.yaml)。在 Render 中选择 **New Blueprint** 并连接本仓库即可创建服务。部署后将 README 中的在线 Demo 占位链接替换为实际地址。
+
+Render 免费实例可能休眠；SQLite 数据属于实例本地临时数据，适合公开演示，不适合作为生产持久化数据库。生产环境应替换为托管数据库并增加认证、权限隔离、CSRF、防审计和多租户能力。
+
+## 测试和开发
 
 ```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest --cov=app --cov=agent_service --cov=image_service --cov=predictive_service --cov=standards_service --cov=vector_service
 .\.venv\Scripts\python.exe smoke_test.py
+.\.venv\Scripts\python.exe -m ruff check .
 ```
 
-测试使用内存数据库和 `tests/fixtures/engine_sample.ppm` 合成图片，不需要网络或云端模型密钥。
+贡献流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，安全问题见 [`SECURITY.md`](SECURITY.md)，行为规范见 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)。
 
 ## 项目结构
 
 ```text
-app.py                         Flask 页面和 API
-agent_service.py               本地 Agent 工具编排
-image_service.py               图片特征分析
-predictive_service.py          传感器趋势和维护窗口
-vector_service.py              本地检索和可选模型调用
-data/demo_knowledge_base.json  公开的合成演示知识库
+app.py                         Flask 页面、API、健康检查和配置
+agent_service.py               本地 Agent 工具编排与 trace 轨迹
+image_service.py               图像质量门控和候选区域检测
+predictive_service.py          CSV 解析、趋势拟合和维护窗口
+vector_service.py              合成知识库检索和可选模型调用
+standards_service.py           参数红线规则与解释
+data/demo_knowledge_base.json  公开合成知识库
+data/demo_eval_cases.json      可复现合成评测集
+evaluate_demo.py               评测 CLI
 templates/                     Jinja 页面
-static/                       CSS、样例 CSV 和静态资源
-tests/fixtures/                合成测试素材
-smoke_test.py                  端到端冒烟测试
-```
-
-## 开发与贡献
-
-请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请阅读 [SECURITY.md](SECURITY.md)。行为规范见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
-
-## GitHub 发布
-
-```bash
-git clone YOUR_REPOSITORY_URL
-cd YOUR_REPOSITORY_NAME
-git checkout -b feature/your-change
-git add .
-git commit -m "describe your change"
-git push -u origin feature/your-change
+static/                        CSS、样例 CSV 和上传目录
+tests/                         合成素材和 pytest 测试
+docs/                          架构说明和演示脚本
 ```
 
 ## 许可证

@@ -1,0 +1,17 @@
+name: Demo or documentation issue
+description: Report unclear instructions, broken links, or demo friction
+title: "[Docs/Demo] "
+labels: [documentation]
+body:
+  - type: textarea
+    id: location
+    attributes:
+      label: Page or document
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: What should be clearer?
+    validations:
+      required: true

@@ -1,0 +1,48 @@
+[
+  {
+    "id": "text-high-risk",
+    "description": "高风险文本现象",
+    "query_text": "发动机过热冒烟爆燃，压力低且无法启动",
+    "expected_risk": "高风险",
+    "expected_cause": "气缸密封、活塞环或气门系统异常"
+  },
+  {
+    "id": "text-startup",
+    "description": "启动困难与积碳线索",
+    "query_text": "冷机启动困难，火花塞发黑，伴随异响",
+    "expected_risk": "低风险",
+    "expected_cause": "点火与燃烧质量异常"
+  },
+  {
+    "id": "text-leak",
+    "description": "油液渗漏线索",
+    "query_text": "设备连接处渗漏，观察到油泥附着",
+    "expected_risk": "低风险",
+    "expected_cause": "密封件老化或结合面失效"
+  },
+  {
+    "id": "sensor-demo",
+    "description": "内置传感器退化基线",
+    "use_demo_sensor": true,
+    "expected_risk": "低风险",
+    "expected_cause": "气缸密封、活塞环或气门系统异常"
+  },
+  {
+    "id": "multimodal-image",
+    "description": "图片与文本融合",
+    "query_text": "火花塞积碳，发动机异响",
+    "image_fixture": "tests/fixtures/engine_sample.ppm",
+    "expected_risk": "低风险",
+    "expected_cause": "点火与燃烧质量异常"
+  },
+  {
+    "id": "invalid-input-degrade",
+    "description": "错误输入保留轨迹并降级",
+    "query_text": "仅文本输入：冷机启动困难",
+    "invalid_sensor": true,
+    "invalid_image": true,
+    "expected_risk": "低风险",
+    "expected_cause": "气缸密封、活塞环或气门系统异常",
+    "expects_degraded_step": true
+  }
+]
