@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import pytest
 from types import SimpleNamespace
+from agent_service import AgentOrchestrator
 
 from predictive_service import analyze_series, demo_series, parse_csv_with_profile
 from standards_service import check_parameter
@@ -86,3 +87,94 @@ def test_vector_service_falls_back_when_chroma_initialization_fails(monkeypatch)
     service = VectorService()
     assert service.backend_name == "keyword"
     assert service.backend_error
+
+
+def test_qwen_chat_completion_uses_configured_endpoint(monkeypatch):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Qwen 检修建议"}}]}
+
+    def fake_post(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return Response()
+
+    monkeypatch.setenv("LLM_API_KEY", "TEST_TOKEN")
+    monkeypatch.setenv("LLM_API_URL", "https://qwen.example.test/v1/chat/completions")
+    monkeypatch.setenv("LLM_MODEL", "qwen-plus")
+    monkeypatch.setattr(vector_service.requests, "post", fake_post)
+    service = VectorService()
+
+    assert service.call_llm("启动困难", [{"source": "演示", "text": "检查点火"}]) == "Qwen 检修建议"
+    assert captured["url"] == "https://qwen.example.test/v1/chat/completions"
+    assert captured["json"]["model"] == "qwen-plus"
+    assert captured["headers"]["Authorization"] == "Bearer TEST_TOKEN"
+    assert captured["timeout"] == 20.0
+    assert service.llm_capabilities()["active"] == "qwen"
+
+
+def test_qwen_timeout_returns_offline_fallback(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "TEST_TOKEN")
+    monkeypatch.setattr(
+        vector_service.requests, "post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(vector_service.requests.Timeout()),
+    )
+    service = VectorService()
+
+    answer = service.call_llm("启动困难", [{"source": "演示", "text": "检查点火"}])
+
+    assert "本地演示诊断模式" in answer
+    assert service.llm_capabilities()["active"] == "offline"
+    assert service.llm_capabilities()["error"] == "请求超时"
+
+
+@pytest.mark.parametrize("failure", ["http", "json"])
+def test_qwen_error_response_returns_sanitized_fallback(monkeypatch, failure):
+    class Response:
+        def raise_for_status(self):
+            if failure == "http":
+                error = vector_service.requests.HTTPError("401 secret detail")
+                error.response = SimpleNamespace(status_code=401)
+                raise error
+
+        def json(self):
+            return {"unexpected": "shape"}
+
+    monkeypatch.setenv("LLM_API_KEY", "TEST_TOKEN")
+    monkeypatch.setattr(vector_service.requests, "post", lambda *args, **kwargs: Response())
+    service = VectorService()
+
+    answer = service.call_llm("启动困难", [{"source": "演示", "text": "检查点火"}])
+
+    assert "本地演示诊断模式" in answer
+    assert "secret detail" not in service.llm_capabilities()["error"]
+    assert service.llm_capabilities()["active"] == "offline"
+
+
+def test_agent_records_llm_generation_step():
+    calls = []
+
+    class FakeVector:
+        def search_similar(self, query, top_k=4):
+            return [{"source": "演示", "text": "检查点火", "score": 0.8, "matched_terms": []}]
+
+        def call_llm(self, query, docs):
+            calls.append((query, docs))
+            return "云端建议"
+
+        def llm_capabilities(self):
+            return {"provider": "qwen", "model": "qwen-plus", "configured": True, "active": "qwen", "error": ""}
+
+    agent = AgentOrchestrator(FakeVector(), SimpleNamespace(analyze=lambda path: {}), lambda *args: {
+        "risk_score": 25, "risk_level": "低风险", "risk_class": "safe", "confidence": 0.7,
+        "causes": ["测试"], "plan": [],
+    })
+    result = agent.run(query_text="启动困难")
+
+    assert calls
+    assert result["diagnosis"]["answer"].startswith("云端建议")
+    assert any(step["tool"] == "generate_diagnostic_answer" for step in result["steps"])

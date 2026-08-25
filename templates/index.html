@@ -34,7 +34,7 @@
       <div class="pipeline-strip">{% for step in image_result.pipeline %}<span>{{ loop.index }}. {{ step }}</span>{% endfor %}</div>
     </div></section>{% endif %}
 
-    <section class="panel"><div class="panel-head"><h3>专家诊断建议</h3><span class="badge info">RAG 生成</span></div><div class="panel-body"><div class="answer">{{ llm_answer }}</div>
+    <section class="panel"><div class="panel-head"><h3>专家诊断建议</h3><div class="chips"><span class="badge info">RAG 生成</span><span class="badge {% if llm_status.active == 'qwen' %}safe{% else %}warning{% endif %}">{% if llm_status.active == 'qwen' %}通义千问增强{% else %}本地确定性模式{% endif %}</span></div></div><div class="panel-body"><div class="answer">{{ llm_answer }}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:15px"><form method="post" action="{{ url_for('create_work_order') }}"><input type="hidden" name="diagnosis_id" value="{{ diagnosis_record.id }}"><button class="btn btn-success" type="submit">＋ 一键转检修工单</button></form><a class="btn btn-secondary" href="{{ url_for('compliance') }}">进入参数红线复核</a><button class="btn btn-outline" type="button" onclick="document.getElementById('feedbackBox').hidden=false">专家纠偏</button></div>
       <div id="feedbackBox" hidden style="margin-top:14px"><textarea id="corrected_output" class="textarea" placeholder="输入更准确的现场处置结论"></textarea><button class="btn btn-primary" style="margin-top:8px" onclick="submitCorrection()">提交持续学习样本</button></div>
     </div></section>

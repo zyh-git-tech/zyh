@@ -34,7 +34,8 @@
       </div>
     </section>
 
-    <section class="risk-banner {{ run_data.diagnosis.risk_class }} agent-risk"><div><div style="opacity:.8">Agent 综合结论</div><h2 style="margin:4px 0">{{ run_data.diagnosis.risk_level }}</h2><div style="opacity:.82">置信度 {{ (run_data.diagnosis.confidence * 100)|round|int }}% · 追溯号 {{ run_data.trace_id }}</div></div><div class="risk-score">{{ run_data.diagnosis.risk_score }}<small style="font-size:13px"> /100</small></div></section>
+      <section class="risk-banner {{ run_data.diagnosis.risk_class }} agent-risk"><div><div style="opacity:.8">Agent 综合结论</div><h2 style="margin:4px 0">{{ run_data.diagnosis.risk_level }}</h2><div style="opacity:.82">置信度 {{ (run_data.diagnosis.confidence * 100)|round|int }}% · 追溯号 {{ run_data.trace_id }}</div></div><div class="risk-score">{{ run_data.diagnosis.risk_score }}<small style="font-size:13px"> /100</small></div></section>
+      <div class="chips agent-model-status"><span class="badge {% if run_data.llm_status.active == 'qwen' %}safe{% else %}warning{% endif %}">{% if run_data.llm_status.active == 'qwen' %}通义千问增强{% else %}本地确定性模式{% endif %}</span><span class="tag">{{ run_data.llm_status.model }}</span></div>
 
     <div class="grid grid-2">
       <section class="panel"><div class="panel-head"><h3>原因链与处置计划</h3><span class="badge purple">可解释</span></div><div class="panel-body"><ul class="list">{% for cause in run_data.diagnosis.causes %}<li class="list-item">{{ loop.index }}. {{ cause }}</li>{% endfor %}</ul><div class="timeline agent-plan">{% for item in run_data.diagnosis.plan %}<div class="timeline-item"><span class="timeline-dot"></span>{{ item }}</div>{% endfor %}</div></div></section>

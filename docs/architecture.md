@@ -17,7 +17,7 @@ flowchart LR
     Fusion --> WorkOrder[工单草稿与步骤签核]
     Audit[专家审核] --> DB
     DB --> Graph[知识图谱]
-    LLM[可选 OpenAI 兼容接口] -.增强.-> Retrieve
+    LLM[可选通义千问兼容接口] -.增强.-> Retrieve
     LLM -.失败或无密钥.-> Offline[本地确定性降级]
     Offline --> Fusion
 ```
@@ -36,6 +36,6 @@ flowchart LR
 | --- | --- | --- |
 | `image_service.py` / `yolo_service.py` | JPG/PNG/WebP/BMP | 质量分、候选区域、风险特征、统一检测框 |
 | `predictive_service.py` | `hour,temperature,vibration,pressure` CSV | 趋势斜率、R²、滚动均值、波动率、异常分数、RUL |
-| `vector_service.py` | 文本现象和多模态摘要 | 匹配证据、命中词、离线诊断建议 |
+| `vector_service.py` | 文本现象和多模态摘要 | 匹配证据、命中词、Qwen 或离线诊断建议 |
 | `standards_service.py` | 规则键和值 | 合格/超差、偏差量、解释消息 |
-| `agent_service.py` | 文本、图片、CSV、设备型号 | 六步轨迹、融合诊断、工单草稿 |
+| `agent_service.py` | 文本、图片、CSV、设备型号 | 七步轨迹、融合诊断、工单草稿 |

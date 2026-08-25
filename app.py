@@ -27,7 +27,7 @@ configured_secret = os.getenv("APP_SECRET_KEY", "").strip()
 if app_env == "production" and not configured_secret:
     raise RuntimeError("APP_SECRET_KEY must be set when APP_ENV=production")
 app.secret_key = configured_secret or secrets.token_hex(32)
-app.config["APP_VERSION"] = os.getenv("APP_VERSION", "0.2.0")
+app.config["APP_VERSION"] = os.getenv("APP_VERSION", "0.3.1")
 
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.abspath(os.path.dirname(sys.executable))
@@ -362,6 +362,7 @@ def diagnosis():
         selected_model=selected_model, llm_answer=llm_answer, matched_docs=matched_docs,
         image_result=image_result, image_filename=image_filename, profile=profile,
         diagnosis_record=diagnosis_record,
+        llm_status=vector_engine.llm_capabilities(),
     )
 
 
@@ -403,6 +404,7 @@ def capabilities():
             "fallback": requested_vision == "yolo" and image_engine.backend_name != "yolo",
         },
         "predictive": {"active": "deterministic"},
+        "llm": vector_engine.llm_capabilities(),
     })
 
 

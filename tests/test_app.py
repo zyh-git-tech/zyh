@@ -44,4 +44,7 @@ def test_capabilities_probe_is_non_sensitive():
     assert payload["retrieval"]["active"] in {"keyword", "chroma"}
     assert payload["vision"]["active"] in {"heuristic", "yolo"}
     assert payload["predictive"]["active"] == "deterministic"
+    assert payload["llm"]["provider"] == "qwen"
+    assert payload["llm"]["active"] in {"offline", "qwen"}
+    assert "configured" in payload["llm"]
     assert "API_KEY" not in response.get_data(as_text=True)

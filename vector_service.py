@@ -105,6 +105,7 @@ class VectorService:
         self.backend_name = "keyword"
         self.backend_error = ""
         self.backend = KeywordBackend(self._tokenize)
+        self.last_llm_status = self._offline_llm_status("未配置云端密钥")
         if os.getenv("VECTOR_BACKEND", "keyword").lower() == "chroma":
             try:
                 db_path = Path(os.getenv("VECTOR_DB_PATH", str(knowledge_path.parent / "chroma")))
@@ -112,6 +113,24 @@ class VectorService:
                 self.backend_name = "chroma"
             except Exception as exc:
                 self.backend_error = f"{type(exc).__name__}: {exc}"
+
+    @staticmethod
+    def _offline_llm_status(reason):
+        return {
+            "provider": os.getenv("LLM_PROVIDER", "qwen").strip() or "qwen",
+            "model": os.getenv("LLM_MODEL", "qwen-plus").strip() or "qwen-plus",
+            "configured": bool(os.getenv("LLM_API_KEY", "").strip()),
+            "active": "offline",
+            "error": reason,
+        }
+
+    def llm_capabilities(self):
+        """Return a non-sensitive snapshot suitable for the public capabilities API."""
+        status = dict(self.last_llm_status)
+        status["configured"] = bool(os.getenv("LLM_API_KEY", "").strip())
+        status["provider"] = os.getenv("LLM_PROVIDER", "qwen").strip() or "qwen"
+        status["model"] = os.getenv("LLM_MODEL", "qwen-plus").strip() or "qwen-plus"
+        return status
 
     def _tokenize(self, text):
         """中文使用单字和二元词，英文使用单词，避免整句中文成为单一 token。"""
@@ -133,14 +152,19 @@ class VectorService:
         return formatted_docs
 
     def call_llm(self, query, context_docs):
-        """调用兼容 OpenAI Chat Completions 的接口，未配置时使用本地模式。"""
+        """调用兼容 OpenAI Chat Completions 的接口，失败时使用本地模式。"""
         api_key = os.getenv("LLM_API_KEY", "").strip()
         api_url = os.getenv(
             "LLM_API_URL",
-            "https://api.openai.com/v1/chat/completions",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         )
-        model_name = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        model_name = os.getenv("LLM_MODEL", "qwen-plus").strip() or "qwen-plus"
+        provider = os.getenv("LLM_PROVIDER", "qwen").strip() or "qwen"
         if not api_key:
+            self.last_llm_status = {
+                "provider": provider, "model": model_name, "configured": False,
+                "active": "offline", "error": "未配置云端密钥",
+            }
             return self._offline_diagnostic_fallback(
                 query, context_docs, "未配置云端密钥，使用本地演示模式"
             )
@@ -170,11 +194,34 @@ class VectorService:
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
         try:
-            response = requests.post(api_url, json=payload, headers=headers, timeout=20)
+            timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "20"))
+        except ValueError:
+            timeout = 20.0
+        try:
+            response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-        except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
-            return self._offline_diagnostic_fallback(query, context_docs, str(exc))
+            content = response.json()["choices"][0]["message"]["content"]
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("empty model response")
+            self.last_llm_status = {
+                "provider": provider, "model": model_name, "configured": True,
+                "active": "qwen", "error": "",
+            }
+            return content.strip()
+        except requests.Timeout:
+            error = "请求超时"
+        except requests.HTTPError as exc:
+            status_code = getattr(exc.response, "status_code", None)
+            error = f"接口错误 {status_code}" if status_code else "接口错误"
+        except requests.RequestException:
+            error = "网络请求失败"
+        except (KeyError, TypeError, ValueError):
+            error = "响应格式异常"
+        self.last_llm_status = {
+            "provider": provider, "model": model_name, "configured": True,
+            "active": "offline", "error": error,
+        }
+        return self._offline_diagnostic_fallback(query, context_docs, error)
 
     def _offline_diagnostic_fallback(self, query, context_docs, error_msg):
         """网络断开、超时或未配置密钥时的本地确定性退化策略。"""

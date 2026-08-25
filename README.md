@@ -25,7 +25,7 @@
 1. 启动应用并打开 <http://127.0.0.1:5000/agent>。
 2. 输入“冷机启动困难，火花塞发黑，伴随异响”，上传 `tests/fixtures/engine_sample.ppm`。
 3. 勾选内置传感器退化基线，运行 Agent。
-4. 查看六步工具轨迹、图片候选区域、趋势风险、检索证据和参数红线。
+4. 查看七步工具轨迹、图片候选区域、趋势风险、检索证据和参数红线。
 5. 点击生成工单，完成第一步签核，再到工单中心查看进度。
 
 完整讲解稿见 [`docs/demo-script.md`](docs/demo-script.md)，系统数据流见 [`docs/architecture.md`](docs/architecture.md)。
@@ -120,7 +120,16 @@ hour,temperature,vibration,pressure
 
 ## 可选云端模型
 
-默认不需要密钥即可运行本地模式。复制 `.env.example` 后按需配置 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`。在线 Demo 默认不启用云端模型，避免密钥暴露和调用成本。
+默认不需要密钥即可运行本地模式。复制 `.env.example` 后，在当前 PowerShell 会话中按需配置：
+
+```powershell
+$env:LLM_API_KEY="在阿里云控制台生成的新密钥"
+$env:LLM_API_URL="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+$env:LLM_MODEL="qwen-plus"
+$env:LLM_PROVIDER="qwen"
+```
+
+Agent 工作台和多模态诊断会显示“通义千问增强”或“本地确定性模式”。密钥只应通过本机环境变量或部署平台 Secret 注入，不要写入仓库、截图、日志或提交历史。在线 Demo 默认不启用云端模型。
 
 ## 可选模型能力
 
@@ -138,7 +147,7 @@ Chroma 首次启动会从合成知识库建立本地 collection；YOLO 只有在
 
 `evaluate_demo.py` 和 `data/demo_eval_cases.json` 用于复现本地行为回归，输出风险准确率、原因 Macro-F1、降级通过率、RUL 方向通过率和视觉回退通过率。仓库没有真实工业缺陷标注集，YOLO 配置、合成预测样例和 RUL 结果仅用于工程接口演示。
 
-主要配置：`APP_SECRET_KEY`、`DATABASE_URL`、`APP_HOST`、`APP_PORT`、`PORT`、`APP_VERSION`、`FLASK_DEBUG`、`LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`。
+主要配置：`APP_SECRET_KEY`、`DATABASE_URL`、`APP_HOST`、`APP_PORT`、`PORT`、`APP_VERSION`、`FLASK_DEBUG`、`LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`、`LLM_PROVIDER`、`LLM_TIMEOUT_SECONDS`。
 
 ## Render 部署
 

@@ -154,7 +154,11 @@ class AgentOrchestrator:
         if sensor_result and sensor_result.get("risk_level") == "高风险" and profile["risk_level"] != "高风险":
             profile.update({"risk_level": "高风险", "risk_class": "danger"})
 
-        answer = self.vector_engine._offline_diagnostic_fallback(
+        answer = self._add_step(
+            steps, "generate_diagnostic_answer", "生成智能诊断建议",
+            f"{len(matched_docs[:3])} 条知识证据",
+            lambda: self.vector_engine.call_llm(final_query, matched_docs[:3]),
+        ) or self.vector_engine._offline_diagnostic_fallback(
             final_query, matched_docs[:3], "Agent 本地确定性工具编排"
         )
         if sensor_result:
@@ -178,6 +182,7 @@ class AgentOrchestrator:
             "image_result": image_result, "sensor_result": sensor_result,
             "source_profile": source_profile, "evidence": evidence,
             "matched_docs": matched_docs, "diagnosis": profile, "work_order_draft": draft,
+            "llm_status": self.vector_engine.llm_capabilities(),
         }
 
     @staticmethod

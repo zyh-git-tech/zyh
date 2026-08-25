@@ -35,7 +35,7 @@ def run():
         required_agent_labels = ["Agent 综合结论", "图像缺陷分析", "传感器趋势分析", "维修知识检索", "参数红线校验", "融合诊断决策"]
         assert response.status_code == 200 and all(label.encode("utf-8") in response.data for label in required_agent_labels)
         agent_run = AgentRun.query.order_by(AgentRun.id.desc()).first()
-        assert agent_run and agent_run.diagnosis_id and len(__import__("json").loads(agent_run.steps_json)) == 6
+        assert agent_run and agent_run.diagnosis_id and len(__import__("json").loads(agent_run.steps_json)) == 7
         assert all(step["status"] == "completed" for step in __import__("json").loads(agent_run.steps_json))
         results.append(("Agent 综合诊断与轨迹保存", response.status_code, agent_run.trace_id))
 
