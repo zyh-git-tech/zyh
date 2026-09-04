@@ -7,6 +7,7 @@ os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_PASSWORD", "admin")
 
 from app import app
+from models import db, DiagnosisRecord, User, WorkOrder
 
 
 def login(client):
@@ -99,3 +100,42 @@ def test_capabilities_probe_is_non_sensitive():
     assert payload["llm"]["active"] in {"offline", "qwen"}
     assert "configured" in payload["llm"]
     assert "API_KEY" not in response.get_data(as_text=True)
+
+
+def test_business_records_are_isolated_between_users_and_visible_to_admin():
+    app.config.update(TESTING=True)
+    user_a = "isolation_a"
+    user_b = "isolation_b"
+    client_a = app.test_client()
+    client_b = app.test_client()
+    admin_client = app.test_client()
+    client_a.post("/register", data={"username": user_a, "password": "password123"})
+    client_b.post("/register", data={"username": user_b, "password": "password123"})
+    client_a.post("/login", data={"username": user_a, "password": "password123"})
+    client_b.post("/login", data={"username": user_b, "password": "password123"})
+
+    with app.app_context():
+        owner = User.query.filter_by(username=user_a).one()
+        diagnosis = DiagnosisRecord(
+            user_id=owner.id, trace_id="DX-ISOLATION-A", device_model="ZONTES-250",
+            query_text="仅用于账号隔离测试", risk_level="低风险", confidence=0.9,
+            answer="测试诊断结果",
+        )
+        db.session.add(diagnosis)
+        db.session.flush()
+        order = WorkOrder(
+            user_id=owner.id, order_no="WO-ISOLATION-A", diagnosis_id=diagnosis.id,
+            title="仅属于 isolation_a 的工单", device_model="ZONTES-250",
+            priority="P3", assignee="测试", status="待处理",
+        )
+        db.session.add(order)
+        db.session.commit()
+        order_id = order.id
+
+    order_title = "仅属于 isolation_a 的工单"
+    assert order_title in client_a.get("/work-orders").get_data(as_text=True)
+    assert order_title not in client_b.get("/work-orders").get_data(as_text=True)
+    assert client_b.get(f"/work-orders/{order_id}").status_code == 404
+
+    admin_client.post("/login", data={"username": "admin", "password": "admin"})
+    assert order_title in admin_client.get("/work-orders").get_data(as_text=True)

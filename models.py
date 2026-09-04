@@ -6,7 +6,7 @@ db = SQLAlchemy()
 
 
 class User(db.Model):
-    """登录账号；业务数据在 v1 中继续由全体登录用户共享。"""
+    """登录账号与其私有业务记录。"""
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), nullable=False, unique=True, index=True)
@@ -51,6 +51,7 @@ class MaintCase(db.Model):
     """
     __tablename__ = 'maint_cases'
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     title = db.Column(db.String(200), nullable=False)
     device_model = db.Column(db.String(50), nullable=False)
     fault_description = db.Column(db.Text, nullable=False)
@@ -65,6 +66,7 @@ class LlmLabeledFeedback(db.Model):
     """
     __tablename__ = 'llm_labeled_feedbacks'
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     query_text = db.Column(db.Text, nullable=False)
     original_output = db.Column(db.Text, nullable=False)
     corrected_output = db.Column(db.Text, nullable=False)
@@ -75,6 +77,7 @@ class DiagnosisRecord(db.Model):
     """一次可追溯的多模态诊断记录。"""
     __tablename__ = 'diagnosis_records'
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     trace_id = db.Column(db.String(32), nullable=False, unique=True, index=True)
     device_model = db.Column(db.String(50), nullable=True)
     query_text = db.Column(db.Text, nullable=False)
@@ -91,6 +94,7 @@ class WorkOrder(db.Model):
     """由诊断一键生成的检修工单。"""
     __tablename__ = 'work_orders'
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     order_no = db.Column(db.String(32), nullable=False, unique=True, index=True)
     diagnosis_id = db.Column(db.Integer, db.ForeignKey('diagnosis_records.id'), nullable=True)
     title = db.Column(db.String(200), nullable=False)
@@ -129,6 +133,7 @@ class PredictiveAnalysis(db.Model):
     """设备时序健康预测与维护窗口建议。"""
     __tablename__ = 'predictive_analyses'
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     analysis_no = db.Column(db.String(32), nullable=False, unique=True, index=True)
     device_model = db.Column(db.String(50), nullable=False)
     operating_hours = db.Column(db.Float, nullable=False, default=0)
@@ -148,6 +153,7 @@ class AgentRun(db.Model):
     """可展示、可追溯的一次 Agent 工具编排运行记录。"""
     __tablename__ = 'agent_runs'
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     trace_id = db.Column(db.String(32), nullable=False, unique=True, index=True)
     input_summary = db.Column(db.Text, nullable=False, default='')
     steps_json = db.Column(db.Text, nullable=False, default='[]')

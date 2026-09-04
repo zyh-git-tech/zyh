@@ -8,6 +8,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+from sqlalchemy import inspect
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -156,6 +157,45 @@ def build_profile(query, image_result, matched_docs):
 
 agent_engine = LangGraphAgentOrchestrator(vector_engine, image_engine, build_profile)
 
+OWNED_MODELS = (DiagnosisRecord, AgentRun, PredictiveAnalysis, WorkOrder, MaintCase, LlmLabeledFeedback)
+
+
+def current_user_id():
+    return session.get("user_id")
+
+
+def is_admin():
+    user_id = current_user_id()
+    user = db.session.get(User, user_id) if user_id else None
+    return bool(user and user.role == "admin")
+
+
+def owned_query(model):
+    query = model.query
+    if not is_admin():
+        query = query.filter(model.user_id == current_user_id())
+    return query
+
+
+def owned_or_404(model, record_id):
+    record = owned_query(model).filter(model.id == record_id).first()
+    if not record:
+        from flask import abort
+        abort(404)
+    return record
+
+
+def ensure_user_columns():
+    """Add ownership columns to pre-account databases and assign legacy data to admin."""
+    inspector = inspect(db.engine)
+    for model in OWNED_MODELS:
+        table = model.__tablename__
+        columns = {item["name"] for item in inspector.get_columns(table)}
+        if "user_id" not in columns:
+            db.session.execute(db.text(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER"))
+            db.session.execute(db.text(f"CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)"))
+    db.session.commit()
+
 
 def is_safe_next_url(target):
     parsed = urlparse(target or "")
@@ -256,10 +296,16 @@ def ensure_demo_data():
         password_hash = ADMIN_PASSWORD_HASH or generate_password_hash(ADMIN_PASSWORD)
         db.session.add(User(username=ADMIN_USERNAME, password_hash=password_hash, role="admin"))
         db.session.commit()
+        admin = User.query.filter_by(username=ADMIN_USERNAME).first()
     elif ADMIN_PASSWORD_HASH and admin.password_hash != ADMIN_PASSWORD_HASH:
         admin.password_hash = ADMIN_PASSWORD_HASH
         admin.role = "admin"
         db.session.commit()
+    ensure_user_columns()
+    admin_id = admin.id
+    for model in OWNED_MODELS:
+        db.session.query(model).filter(model.user_id.is_(None)).update({"user_id": admin_id}, synchronize_session=False)
+    db.session.commit()
     if Equipment.query.count() == 0:
         db.session.add_all([
             Equipment(name="水冷顶置凸轮发动机", model="ZONTES-250"),
@@ -272,7 +318,7 @@ def ensure_demo_data():
 @app.route("/agent", methods=["GET"])
 def agent_workspace():
     run_id = session.get("agent_run_id")
-    run_record = db.session.get(AgentRun, run_id) if run_id else None
+    run_record = owned_query(AgentRun).filter_by(id=run_id).first() if run_id else None
     run_data = load_json(run_record.result_json if run_record else None)
     return render_template(
         "agent.html", run_record=run_record, run_data=run_data,
@@ -311,6 +357,7 @@ def run_agent_workspace():
     run_data["image_filename"] = image_filename
     profile = run_data["diagnosis"]
     diagnosis_record = DiagnosisRecord(
+        user_id=current_user_id(),
         trace_id=run_data["trace_id"], device_model=selected_model,
         query_text=query_text or "多模态 Agent 综合诊断", image_path=image_filename,
         image_findings=json.dumps(run_data.get("image_result"), ensure_ascii=False) if run_data.get("image_result") else "",
@@ -320,6 +367,7 @@ def run_agent_workspace():
     db.session.add(diagnosis_record)
     db.session.flush()
     run_record = AgentRun(
+        user_id=current_user_id(),
         trace_id=run_data["trace_id"],
         input_summary=f"{selected_model or '通用设备'} · {query_text or '多模态综合诊断'}",
         steps_json=json.dumps(run_data["steps"], ensure_ascii=False),
@@ -335,7 +383,7 @@ def run_agent_workspace():
 @app.route("/agent/work-order", methods=["POST"])
 def create_agent_work_order():
     run_id = request.form.get("run_id", type=int) or session.get("agent_run_id")
-    run_record = db.session.get(AgentRun, run_id) if run_id else None
+    run_record = owned_query(AgentRun).filter_by(id=run_id).first() if run_id else None
     if not run_record:
         flash("请先运行一次 Agent 诊断。", "warning")
         return redirect(url_for("agent_workspace"))
@@ -343,11 +391,12 @@ def create_agent_work_order():
         return redirect(url_for("work_order_detail", order_id=run_record.work_order_id))
     run_data = load_json(run_record.result_json, {})
     draft = run_data.get("work_order_draft", {})
-    diagnosis = db.session.get(DiagnosisRecord, run_record.diagnosis_id)
+    diagnosis = owned_query(DiagnosisRecord).filter_by(id=run_record.diagnosis_id).first()
     if not diagnosis:
         flash("诊断记录不存在，请重新运行 Agent。", "warning")
         return redirect(url_for("agent_workspace"))
     order = WorkOrder(
+        user_id=current_user_id(),
         order_no="WO-" + datetime.now().strftime("%y%m%d%H%M") + uuid.uuid4().hex[:3].upper(),
         diagnosis_id=diagnosis.id, title=draft.get("title", "Agent 综合检修任务"),
         device_model=draft.get("device_model", diagnosis.device_model or "通用设备"),
@@ -372,6 +421,8 @@ def ensure_remaining_demo_data():
     """保留原项目的演示 SOP 与工单初始化逻辑。"""
     if request.endpoint == "healthcheck":
         return
+    admin = User.query.filter_by(username=ADMIN_USERNAME).first()
+    admin_id = admin.id if admin else None
     if SopTemplate.query.count() == 0:
         template = SopTemplate(
             equipment_model="ZONTES-250", maint_level="日常检修",
@@ -387,8 +438,9 @@ def ensure_remaining_demo_data():
         ])
         db.session.commit()
 
-    if WorkOrder.query.count() == 0:
+    if admin_id and admin_id == current_user_id() and WorkOrder.query.filter_by(user_id=admin_id).count() == 0:
         order = WorkOrder(
+            user_id=admin_id,
             order_no="WO-DEMO-001", title="ZONTES-250 启动困难例行排查",
             device_model="ZONTES-250", priority="P2", assignee="张工",
             status="执行中", progress=50, planned_hours=2.5, estimated_saving=3200,
@@ -405,13 +457,15 @@ def ensure_remaining_demo_data():
 
 @app.route("/")
 def dashboard():
-    orders = WorkOrder.query.order_by(WorkOrder.updated_at.desc()).all()
-    diagnoses = DiagnosisRecord.query.order_by(DiagnosisRecord.created_at.desc()).limit(6).all()
-    approved_cases = MaintCase.query.filter_by(status="APPROVED").count()
+    orders = owned_query(WorkOrder).order_by(WorkOrder.updated_at.desc()).all()
+    diagnoses = owned_query(DiagnosisRecord).order_by(DiagnosisRecord.created_at.desc()).limit(6).all()
+    approved_cases = owned_query(MaintCase).filter_by(status="APPROVED").count()
     completed = sum(1 for item in orders if item.status == "已完成")
     active = sum(1 for item in orders if item.status in {"待处理", "执行中"})
-    high_risk = DiagnosisRecord.query.filter_by(risk_level="高风险").count()
-    avg_conf = db.session.query(db.func.avg(DiagnosisRecord.confidence)).scalar() or 0.86
+    high_risk = owned_query(DiagnosisRecord).filter_by(risk_level="高风险").count()
+    avg_conf = db.session.query(db.func.avg(DiagnosisRecord.confidence)).select_from(DiagnosisRecord).filter(
+        DiagnosisRecord.user_id == current_user_id() if not is_admin() else True
+    ).scalar() or 0.86
     stats = {
         "equipment": Equipment.query.count(),
         "knowledge": len(vector_engine.knowledge_base) + approved_cases,
@@ -458,7 +512,7 @@ def diagnosis():
         visual_context = image_result["summary"] if image_result else ""
         final_query = " ".join(part for part in [query_text, visual_context, selected_model] if part)
         if final_query:
-            approved_cases = MaintCase.query.filter_by(status="APPROVED").all()
+            approved_cases = owned_query(MaintCase).filter_by(status="APPROVED").all()
             dynamic_docs = [{
                 "id": f"case_{case.id}",
                 "text": f"【已审核现场案例】设备 {case.device_model}；故障：{case.fault_description}；对策：{case.solution}",
@@ -469,6 +523,7 @@ def diagnosis():
             profile = build_profile(final_query, image_result, matched_docs)
             trace_id = "DX-" + datetime.now().strftime("%y%m%d-%H%M") + "-" + uuid.uuid4().hex[:4].upper()
             diagnosis_record = DiagnosisRecord(
+                user_id=current_user_id(),
                 trace_id=trace_id, device_model=selected_model, query_text=query_text or "仅图像输入",
                 image_path=image_filename, image_findings=json.dumps(image_result, ensure_ascii=False) if image_result else "",
                 risk_level=profile["risk_level"], confidence=profile["confidence"], answer=llm_answer,
@@ -479,7 +534,7 @@ def diagnosis():
             session["diagnosis_result_id"] = diagnosis_record.id
     else:
         diagnosis_result_id = session.get("diagnosis_result_id")
-        diagnosis_record = db.session.get(DiagnosisRecord, diagnosis_result_id) if diagnosis_result_id else None
+        diagnosis_record = owned_query(DiagnosisRecord).filter_by(id=diagnosis_result_id).first() if diagnosis_result_id else None
         if diagnosis_record:
             query_text = diagnosis_record.query_text
             selected_model = diagnosis_record.device_model or ""
@@ -636,6 +691,7 @@ def predictive_maintenance():
                 f"{index}. {item}" for index, item in enumerate(result["recommendations"], 1)
             )
             diagnosis_record = DiagnosisRecord(
+                user_id=current_user_id(),
                 trace_id=trace_id, device_model=selected_model or "GEN-IND-01",
                 query_text="预测性维护时序预警", risk_level=result["risk_level"],
                 confidence=0.82 + min(0.12, sum(item["r2"] for item in result["metrics"].values()) / 30),
@@ -648,6 +704,7 @@ def predictive_maintenance():
             db.session.add(diagnosis_record)
             db.session.flush()
             analysis_record = PredictiveAnalysis(
+                user_id=current_user_id(),
                 analysis_no="PM-" + datetime.now().strftime("%y%m%d%H%M") + uuid.uuid4().hex[:6].upper(),
                 device_model=selected_model or "GEN-IND-01", operating_hours=rows[-1]["hour"],
                 health_score=result["health_score"], risk_level=result["risk_level"],
@@ -662,12 +719,12 @@ def predictive_maintenance():
             flash(str(exc), "warning")
     else:
         predictive_result_id = session.get("predictive_result_id")
-        analysis_record = db.session.get(PredictiveAnalysis, predictive_result_id) if predictive_result_id else None
+        analysis_record = owned_query(PredictiveAnalysis).filter_by(id=predictive_result_id).first() if predictive_result_id else None
         if analysis_record:
             selected_model = analysis_record.device_model
             result = load_json(analysis_record.result_json, {})
             source_profile = result.get("source_profile")
-    recent = PredictiveAnalysis.query.order_by(PredictiveAnalysis.created_at.desc()).limit(5).all()
+    recent = owned_query(PredictiveAnalysis).order_by(PredictiveAnalysis.created_at.desc()).limit(5).all()
     return render_template(
         "predictive.html", equipments=Equipment.query.all(), selected_model=selected_model,
         result=result, analysis_record=analysis_record, recent=recent, rules=SENSOR_RULES,
@@ -702,7 +759,7 @@ def work_orders():
     status = request.args.get("status", "")
     if status not in {"", "待处理", "执行中", "已完成"}:
         status = ""
-    query = WorkOrder.query.order_by(WorkOrder.updated_at.desc())
+    query = owned_query(WorkOrder).order_by(WorkOrder.updated_at.desc())
     if status:
         query = query.filter_by(status=status)
     return render_template("work_orders.html", orders=query.all(), selected_status=status)
@@ -711,11 +768,12 @@ def work_orders():
 @app.route("/work-orders/create", methods=["POST"])
 def create_work_order():
     diagnosis_id = request.form.get("diagnosis_id", type=int)
-    record = DiagnosisRecord.query.get_or_404(diagnosis_id)
+    record = owned_or_404(DiagnosisRecord, diagnosis_id)
     predictive_id = request.form.get("predictive_id", type=int)
-    predictive = PredictiveAnalysis.query.get(predictive_id) if predictive_id else None
+    predictive = owned_query(PredictiveAnalysis).filter_by(id=predictive_id).first() if predictive_id else None
     priority = {"高风险": "P1", "中风险": "P2", "低风险": "P3"}.get(record.risk_level, "P2")
     order = WorkOrder(
+        user_id=current_user_id(),
         order_no="WO-" + datetime.now().strftime("%y%m%d%H%M") + uuid.uuid4().hex[:3].upper(),
         diagnosis_id=record.id, title=f"{record.device_model or '通用设备'} · {record.query_text[:42]}",
         device_model=record.device_model or "通用设备", priority=priority,
@@ -748,12 +806,12 @@ def create_work_order():
 
 @app.route("/work-orders/<int:order_id>")
 def work_order_detail(order_id):
-    return render_template("work_order_detail.html", order=WorkOrder.query.get_or_404(order_id))
+    return render_template("work_order_detail.html", order=owned_or_404(WorkOrder, order_id))
 
 
 @app.route("/work-orders/<int:order_id>/delete", methods=["POST"])
 def delete_work_order(order_id):
-    order = WorkOrder.query.get_or_404(order_id)
+    order = owned_or_404(WorkOrder, order_id)
     order_no = order.order_no
     db.session.delete(order)
     db.session.commit()
@@ -763,7 +821,7 @@ def delete_work_order(order_id):
 
 @app.route("/work-orders/<int:order_id>/steps/<int:step_id>", methods=["POST"])
 def update_work_order_step(order_id, step_id):
-    order = WorkOrder.query.get_or_404(order_id)
+    order = owned_or_404(WorkOrder, order_id)
     step = WorkOrderStep.query.filter_by(id=step_id, order_id=order.id).first_or_404()
     step.status = "已完成" if request.form.get("completed") == "1" else "待执行"
     step.measured_value = request.form.get("measured_value", "").strip()
@@ -781,14 +839,14 @@ def update_work_order_step(order_id, step_id):
 
 @app.route("/knowledge-graph")
 def knowledge_graph():
-    approved_cases = MaintCase.query.filter_by(status="APPROVED").order_by(MaintCase.created_at.desc()).all()
+    approved_cases = owned_query(MaintCase).filter_by(status="APPROVED").order_by(MaintCase.created_at.desc()).all()
     graph = build_knowledge_graph(approved_cases)
     return render_template("knowledge_graph.html", graph=graph, approved_count=len(approved_cases))
 
 
 @app.route("/knowledge-graph/cases/<int:case_id>/delete", methods=["POST"])
 def delete_knowledge_graph_case(case_id):
-    case = MaintCase.query.filter_by(id=case_id, status="APPROVED").first_or_404()
+    case = owned_query(MaintCase).filter_by(id=case_id, status="APPROVED").first_or_404()
     case_title = case.title
     db.session.delete(case)
     db.session.commit()
@@ -801,6 +859,7 @@ def upload_experience():
     if request.method == "POST":
         filename, _ = save_upload(request.files.get("case_image"))
         db.session.add(MaintCase(
+            user_id=current_user_id(),
             title=request.form.get("title", "").strip(), device_model=request.form.get("device_model", "").strip(),
             fault_description=request.form.get("fault_description", "").strip(), solution=request.form.get("solution", "").strip(),
             image_path=filename, status="PENDING",
@@ -823,12 +882,12 @@ def audit_panel():
         selected_status = "pending"
     db_status, status_label, status_class = status_map[selected_status]
     status_counts = {
-        key: MaintCase.query.filter_by(status=value[0]).count()
+        key: owned_query(MaintCase).filter_by(status=value[0]).count()
         for key, value in status_map.items()
     }
     return render_template(
         "audit.html",
-        cases=MaintCase.query.filter_by(status=db_status).order_by(MaintCase.created_at.desc()).all(),
+        cases=owned_query(MaintCase).filter_by(status=db_status).order_by(MaintCase.created_at.desc()).all(),
         selected_status=selected_status, status_label=status_label, status_class=status_class,
         status_counts=status_counts,
     )
@@ -836,7 +895,7 @@ def audit_panel():
 
 @app.route("/admin/audit/approve/<int:case_id>", methods=["POST"])
 def approve_action(case_id):
-    case = MaintCase.query.get_or_404(case_id)
+    case = owned_or_404(MaintCase, case_id)
     case.status = "APPROVED"
     db.session.commit()
     flash(f"案例【{case.title}】已通过，知识底座实时版本 +1。", "success")
@@ -845,7 +904,7 @@ def approve_action(case_id):
 
 @app.route("/admin/audit/reject/<int:case_id>", methods=["POST"])
 def reject_action(case_id):
-    case = MaintCase.query.get_or_404(case_id)
+    case = owned_or_404(MaintCase, case_id)
     case.status = "REJECTED"
     db.session.commit()
     flash(f"案例【{case.title}】已驳回。", "warning")
@@ -854,7 +913,7 @@ def reject_action(case_id):
 
 @app.route("/admin/audit/review/<int:case_id>", methods=["POST"])
 def review_audit_case(case_id):
-    case = MaintCase.query.filter(MaintCase.id == case_id, MaintCase.status.in_(["APPROVED", "REJECTED"])).first_or_404()
+    case = owned_query(MaintCase).filter(MaintCase.id == case_id, MaintCase.status.in_(["APPROVED", "REJECTED"])).first_or_404()
     case.status = "PENDING"
     db.session.commit()
     flash(f"案例【{case.title}】已打回待审列表。", "success")
@@ -863,7 +922,7 @@ def review_audit_case(case_id):
 
 @app.route("/admin/audit/delete/<int:case_id>", methods=["POST"])
 def delete_audit_case(case_id):
-    case = MaintCase.query.get_or_404(case_id)
+    case = owned_or_404(MaintCase, case_id)
     case_title = case.title
     selected_status = request.form.get("status", "pending")
     if selected_status not in {"pending", "approved", "rejected"}:
@@ -880,6 +939,7 @@ def submit_correction():
     if not corrected_output:
         return jsonify({"status": "error", "message": "修正内容不能为空。"}), 400
     db.session.add(LlmLabeledFeedback(
+        user_id=current_user_id(),
         query_text=request.form.get("query_text", ""), original_output=request.form.get("original_output", ""),
         corrected_output=corrected_output,
     ))
