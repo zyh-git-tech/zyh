@@ -8,14 +8,14 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from image_service import ImageInspectionService
 from langgraph_agent import LangGraphAgentOrchestrator
 from knowledge_graph_service import build_knowledge_graph
 from models import (
-    db, AgentRun, DiagnosisRecord, Equipment, LlmLabeledFeedback, MaintCase,
+    db, AgentRun, DiagnosisRecord, Equipment, LlmLabeledFeedback, MaintCase, User,
     PredictiveAnalysis, SopStep, SopTemplate, WorkOrder, WorkOrderStep,
 )
 from predictive_service import SENSOR_RULES, analyze_series, demo_series, parse_csv_with_profile
@@ -42,6 +42,14 @@ else:
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'maintenance.db')}"
 )
+if app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgres://"):
+    app.config["SQLALCHEMY_DATABASE_URI"] = app.config["SQLALCHEMY_DATABASE_URI"].replace(
+        "postgres://", "postgresql+psycopg2://", 1
+    )
+elif app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgresql://"):
+    app.config["SQLALCHEMY_DATABASE_URI"] = app.config["SQLALCHEMY_DATABASE_URI"].replace(
+        "postgresql://", "postgresql+psycopg2://", 1
+    )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "static", "uploads")
@@ -162,9 +170,28 @@ def verify_admin_credentials(username, password):
     return app_env != "production" and secrets.compare_digest(password, ADMIN_PASSWORD)
 
 
+def verify_user_credentials(username, password):
+    user = User.query.filter_by(username=username).first()
+    if user and check_password_hash(user.password_hash, password):
+        return user
+    if verify_admin_credentials(username, password):
+        return User.query.filter_by(username=ADMIN_USERNAME).first()
+    return None
+
+
+def validate_registration(username, password):
+    if not 3 <= len(username) <= 32 or not username.replace("_", "").replace("-", "").isalnum():
+        return "用户名需为 3-32 位字母、数字、下划线或短横线。"
+    if len(password) < 8:
+        return "密码至少需要 8 位。"
+    if User.query.filter_by(username=username).first():
+        return "该用户名已存在。"
+    return ""
+
+
 @app.before_request
 def require_login():
-    public_endpoints = {"login", "logout", "healthcheck", "static"}
+    public_endpoints = {"login", "register", "logout", "switch_account", "healthcheck", "static"}
     if request.endpoint in public_endpoints or session.get("authenticated"):
         return
     next_url = request.full_path.rstrip("?")
@@ -177,17 +204,43 @@ def require_login():
 def login():
     next_url = request.args.get("next", "") if request.method == "GET" else request.form.get("next", "")
     if request.method == "POST":
-        if verify_admin_credentials(request.form.get("username", "").strip(), request.form.get("password", "")):
+        username = request.form.get("username", "").strip()
+        user = verify_user_credentials(username, request.form.get("password", ""))
+        if user:
             session.clear()
             session.permanent = True
             session["authenticated"] = True
-            session["username"] = ADMIN_USERNAME
+            session["user_id"] = user.id
+            session["username"] = user.username
+            user.last_login_at = datetime.utcnow()
+            db.session.commit()
             return redirect(next_url if is_safe_next_url(next_url) else url_for("dashboard"))
         flash("用户名或密码错误。", "warning")
     return render_template("login.html", next_url=next_url)
 
 
-@app.route("/logout", methods=["POST", "GET"])
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        error = validate_registration(username, password)
+        if not error:
+            db.session.add(User(username=username, password_hash=generate_password_hash(password), role="user"))
+            db.session.commit()
+            flash("注册成功，请登录。", "success")
+            return redirect(url_for("login"))
+        flash(error, "warning")
+    return render_template("register.html")
+
+
+@app.route("/switch-account", methods=["POST"])
+def switch_account():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     return redirect(url_for("login"))
@@ -198,6 +251,15 @@ def ensure_demo_data():
     if request.endpoint == "healthcheck":
         return
     db.create_all()
+    admin = User.query.filter_by(username=ADMIN_USERNAME).first()
+    if not admin:
+        password_hash = ADMIN_PASSWORD_HASH or generate_password_hash(ADMIN_PASSWORD)
+        db.session.add(User(username=ADMIN_USERNAME, password_hash=password_hash, role="admin"))
+        db.session.commit()
+    elif ADMIN_PASSWORD_HASH and admin.password_hash != ADMIN_PASSWORD_HASH:
+        admin.password_hash = ADMIN_PASSWORD_HASH
+        admin.role = "admin"
+        db.session.commit()
     if Equipment.query.count() == 0:
         db.session.add_all([
             Equipment(name="水冷顶置凸轮发动机", model="ZONTES-250"),

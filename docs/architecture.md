@@ -13,7 +13,7 @@ flowchart LR
     Sensor --> Fusion
     Retrieve --> Fusion
     Rules --> Fusion
-    Fusion --> DB[(SQLite / SQLAlchemy)]
+    Fusion --> DB[(PostgreSQL / SQLite + SQLAlchemy)]
     Fusion --> WorkOrder[工单草稿与步骤签核]
     Audit[专家审核] --> DB
     DB --> Graph[知识图谱]
@@ -24,12 +24,12 @@ flowchart LR
 
 ## 关键设计
 
-1. **全站会话保护**：单账号配置由 `ADMIN_USERNAME` 与 `ADMIN_PASSWORD_HASH` 提供，业务页面和 API 需要登录；`/healthz`、登录接口和静态资源公开，适合 Render 探活。
+1. **全站会话保护**：数据库 `User` 账号支持开放注册；`ADMIN_USERNAME` 与 `ADMIN_PASSWORD_HASH` 会自动同步首个管理员。业务页面和 API 需要登录；登录、注册、切换账号、静态资源和 `/healthz` 公开。
 2. **受限工具 Agent**：LangGraph 管理模型选择、工具结果回传和最多 8 次循环，模型只可调用图像、时序、检索、红线四类只读工具；诊断结果和工单草稿仍经人工确认。
 3. **本地优先**：没有云端密钥时，使用合成知识库和确定性规则；网络请求失败时回退到相同的本地路径。检索可在关键词和 Chroma 间切换，视觉可在规则和 YOLO 间切换。
 4. **证据可追溯**：诊断结果关联 trace id、检索来源、匹配词、传感器数据质量回执和红线结果。
 5. **业务闭环**：诊断或预测分析可以生成工单，工单步骤签核后再沉淀为可审核案例。
-6. **公网部署边界**：Render 使用 Gunicorn 提供 HTTPS 入口；SQLite 在免费实例上是临时本地盘，公网演示可用，生产环境建议替换 PostgreSQL 等持久化数据库。
+6. **公网部署边界**：Render 使用 Gunicorn 提供 HTTPS 入口，并通过 Blueprint 连接 PostgreSQL；本地开发仍支持 SQLite，数据库 URL 会自动兼容 `postgres://` 和 `postgresql://` 格式。
 
 ## 模块边界
 

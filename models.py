@@ -4,6 +4,17 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
+
+class User(db.Model):
+    """登录账号；业务数据在 v1 中继续由全体登录用户共享。"""
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=False, unique=True, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='user')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
 class Equipment(db.Model):
     """
     设备主台账表

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}注册{% endblock %}
+{% block content %}
+<main class="login-shell">
+  <section class="login-panel">
+    <div class="login-mark" aria-hidden="true">◈</div>
+    <p class="eyebrow">INDUSTRIAL COPILOT</p>
+    <h1>注册工擎智维</h1>
+    <p class="login-subtitle">创建账号，进入工业设备多模态检修工作台</p>
+    <form method="post" class="login-form">
+      <label class="form-label" for="username">用户名</label>
+      <input class="input" id="username" name="username" autocomplete="username" minlength="3" maxlength="32" required autofocus>
+      <label class="form-label" for="password">密码</label>
+      <input class="input" id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+      <button class="btn btn-primary btn-block" type="submit">创建账号</button>
+    </form>
+    <p class="login-switch">已有账号？<a href="{{ url_for('login') }}">返回登录</a></p>
+    <p class="login-footnote">本地可信模式 · 受保护的设备检修数据</p>
+  </section>
+</main>
+{% endblock %}

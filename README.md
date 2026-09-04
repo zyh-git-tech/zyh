@@ -75,7 +75,7 @@ python app.py
 
 ### 登录配置
 
-应用默认对所有业务页面和 API 启用单账号会话保护；`/login`、`/logout`、`/healthz` 和静态资源保持公开。开发环境可使用明文便捷变量，生产环境应使用哈希：
+应用默认对所有业务页面和 API 启用会话保护；`/login`、`/register`、`/logout`、`/switch-account`、`/healthz` 和静态资源保持公开。平台支持开放注册，注册使用用户名和至少 8 位密码；开发环境管理员可使用明文便捷变量，生产环境应使用哈希：
 
 ```powershell
 $env:APP_SECRET_KEY="随机长字符串"
@@ -86,7 +86,7 @@ $env:ADMIN_PASSWORD="仅限本地开发"
 $env:ADMIN_PASSWORD_HASH="生成的密码哈希"
 ```
 
-未登录访问页面会跳转到登录页，成功后自动回到原始地址；`/healthz` 可供平台探活且不要求登录。
+未登录访问页面会跳转到登录页，成功后自动回到原始地址；登录后右上角可以切换账号或退出登录。`/healthz` 可供平台探活且不要求登录。
 
 ### 生产 WSGI
 
@@ -162,7 +162,7 @@ Chroma 首次启动会从合成知识库建立本地 collection；YOLO 只有在
 
 `evaluate_demo.py` 和 `data/demo_eval_cases.json` 用于复现本地行为回归，输出风险准确率、原因 Macro-F1、降级通过率、RUL 方向通过率和视觉回退通过率。仓库没有真实工业缺陷标注集，YOLO 配置、合成预测样例和 RUL 结果仅用于工程接口演示。
 
-主要配置：`APP_SECRET_KEY`、`DATABASE_URL`、`APP_HOST`、`APP_PORT`、`PORT`、`APP_VERSION`、`FLASK_DEBUG`、`LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`、`LLM_PROVIDER`、`LLM_TIMEOUT_SECONDS`。
+主要配置：`APP_SECRET_KEY`、`DATABASE_URL`、`APP_HOST`、`APP_PORT`、`PORT`、`APP_VERSION`、`FLASK_DEBUG`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`、`ADMIN_PASSWORD`、`LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`、`LLM_PROVIDER`、`LLM_TIMEOUT_SECONDS`。
 
 ## Render 部署
 
@@ -170,12 +170,12 @@ Chroma 首次启动会从合成知识库建立本地 collection；YOLO 只有在
 
 1. 将代码推送到 GitHub，在 Render 选择 **New Blueprint** 并连接仓库。
 2. 使用 Gunicorn 启动 Web Service，Render 会通过 `/healthz` 检查服务状态。
-3. 在 Render Secret 中配置 `APP_SECRET_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`；需要云端 Agent 时再配置 `LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`。
-4. 使用 Render 分配的 HTTPS 地址打开登录页。登录后驾驶舱、Agent、诊断、预测、工单、SOP、合规和知识图谱等功能全部可用。
+3. Blueprint 会创建 Render PostgreSQL，并将 `DATABASE_URL` 注入 Web Service；在 Render Secret 中配置 `APP_SECRET_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`。
+4. 使用 Render 分配的 HTTPS 地址打开登录/注册页，注册普通账号或使用管理员账号登录。登录后驾驶舱、Agent、诊断、预测、工单、SOP、合规和知识图谱等功能全部可用。
 
 未配置模型密钥时，Agent 仍运行本地确定性策略；配置密钥后，LangGraph 会让模型自主选择并循环调用四个只读检修工具，最终结果仍通过本地融合层和人工确认工单流程输出。
 
-Render 免费实例可能休眠；SQLite 数据属于实例本地临时数据，适合公开演示，不适合作为生产持久化数据库。生产环境应替换为托管数据库并增加认证、权限隔离、CSRF、防审计和多租户能力。
+Render 免费 Web Service 可能休眠；账号和业务数据保存在 Blueprint 创建的 PostgreSQL 中，跨重启持久保存。若手动改回 SQLite，则仅适合临时演示。
 
 ## 测试和开发
 

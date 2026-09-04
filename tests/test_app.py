@@ -40,6 +40,20 @@ def test_invalid_login_does_not_authenticate():
         assert client.get("/").status_code == 302
 
 
+def test_register_login_switch_account_and_logout():
+    app.config.update(TESTING=True)
+    with app.test_client() as client:
+        assert client.get("/register").status_code == 200
+        response = client.post("/register", data={"username": "operator_1", "password": "password123"})
+        assert response.status_code == 302
+        duplicate = client.post("/register", data={"username": "operator_1", "password": "password123"})
+        assert duplicate.status_code == 200
+        assert "已存在" in duplicate.get_data(as_text=True)
+        assert client.post("/login", data={"username": "operator_1", "password": "password123"}).status_code == 302
+        assert client.post("/switch-account").status_code == 302
+        assert client.get("/").status_code == 302
+
+
 def test_healthcheck_reports_application_and_database_status():
     app.config.update(TESTING=True)
     with app.test_client() as client:

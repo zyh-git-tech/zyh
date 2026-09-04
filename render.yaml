@@ -18,7 +18,9 @@ services:
       - key: APP_SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: sqlite:///maintenance.db
+        fromDatabase:
+          name: gongjing-zhiwei-db
+          property: connectionString
       - key: ADMIN_USERNAME
         sync: false
       - key: ADMIN_PASSWORD_HASH
@@ -29,3 +31,8 @@ services:
         value: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
       - key: LLM_MODEL
         value: qwen-plus
+databases:
+  - name: gongjing-zhiwei-db
+    plan: free
+    databaseName: gongjing_zhiwei
+    user: gongjing_zhiwei

@@ -35,7 +35,7 @@
     <div class="workspace-grid" aria-hidden="true"></div>
     <header class="topbar">
       <div class="topbar-title"><strong>{% block top_title %}设备检修智能体{% endblock %}</strong><span>多模态感知 · RAG 检索 · 作业闭环</span></div>
-      <div class="top-actions"><span class="tag">LoongArch Ready</span><span class="tag">版本 v4.0</span>{% if session.get('authenticated') %}<span class="tag">{{ session.get('username') }}</span><a class="btn btn-outline btn-small" href="{{ url_for('logout') }}">退出</a>{% endif %}</div>
+      <div class="top-actions"><span class="tag">LoongArch Ready</span><span class="tag">版本 v4.0</span>{% if session.get('authenticated') %}<span class="tag">{{ session.get('username') }}</span><form method="post" action="{{ url_for('switch_account') }}" class="inline-form"><button class="btn btn-outline btn-small" type="submit">切换账号</button></form><form method="post" action="{{ url_for('logout') }}" class="inline-form"><button class="btn btn-outline btn-small" type="submit">退出登录</button></form>{% endif %}</div>
     </header>
     <div class="content">
       {% with messages = get_flashed_messages(with_categories=true) %}
