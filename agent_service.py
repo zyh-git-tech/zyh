@@ -97,26 +97,32 @@ class AgentOrchestrator:
             }})
         return checks
 
+    def _run_sensor_input(self, sensor_content, sensor_filename, use_demo_sensor):
+        if sensor_content:
+            rows, source_profile = parse_csv_with_profile(sensor_content, sensor_filename)
+        else:
+            rows = demo_series()
+            source_profile = self._demo_profile(rows)
+        result = analyze_series(rows)
+        result["source_profile"] = source_profile
+        return result
+
     def run(self, query_text="", device_model="", image_path=None, sensor_content=None,
-            sensor_filename="sensor_data.csv", use_demo_sensor=False, tool_order=None):
+            sensor_filename="sensor_data.csv", use_demo_sensor=False, tool_order=None, precomputed=None):
         steps = []
         trace_id = self._trace_id()
-        image_result = None
-        sensor_result = None
-        source_profile = None
+        precomputed = precomputed or {}
+        image_result = precomputed.get("image_result")
+        sensor_result = precomputed.get("sensor_result")
+        source_profile = sensor_result.get("source_profile") if sensor_result else None
 
         def run_image():
             return self.image_engine.analyze(image_path)
 
         def run_sensor():
             nonlocal source_profile
-            if sensor_content:
-                rows, source_profile = parse_csv_with_profile(sensor_content, sensor_filename)
-            else:
-                rows = demo_series()
-                source_profile = self._demo_profile(rows)
-            result = analyze_series(rows)
-            result["source_profile"] = source_profile
+            result = self._run_sensor_input(sensor_content, sensor_filename, use_demo_sensor)
+            source_profile = result.get("source_profile")
             return result
 
         # The planner may swap independent perception tools; retrieval and
@@ -127,16 +133,22 @@ class AgentOrchestrator:
                 perception_order.append(name)
         for name in perception_order:
             if name == "inspect_image":
-                if image_path:
+                if image_path and "image_result" not in precomputed:
                     image_result = self._add_step(steps, name, "图像缺陷分析", "上传设备图片", run_image)
+                elif image_path and image_result is not None:
+                    steps.append({"tool": name, "label": "图像缺陷分析", "status": "completed",
+                                  "input_summary": "LangGraph 工具结果", "output_summary": self._summary(image_result), "duration_ms": 0})
                 else:
                     steps.append({"tool": name, "label": "图像缺陷分析", "status": "skipped",
                                   "input_summary": "未上传图片", "output_summary": "跳过视觉工具", "duration_ms": 0})
-            elif sensor_content or use_demo_sensor:
+            elif (sensor_content or use_demo_sensor) and "sensor_result" not in precomputed:
                 sensor_result = self._add_step(
                     steps, name, "传感器趋势分析",
                     sensor_filename if sensor_content else "内置退化基线", run_sensor,
                 )
+            elif sensor_result is not None:
+                steps.append({"tool": name, "label": "传感器趋势分析", "status": "completed",
+                              "input_summary": "LangGraph 工具结果", "output_summary": self._summary(sensor_result), "duration_ms": 0})
             else:
                 steps.append({"tool": name, "label": "传感器趋势分析", "status": "skipped",
                               "input_summary": "未上传 CSV", "output_summary": "跳过时序工具", "duration_ms": 0})
@@ -145,14 +157,24 @@ class AgentOrchestrator:
         sensor_summary = sensor_result.get("summary", "") if sensor_result else ""
         final_query = " ".join(item for item in [query_text, device_model, visual_summary, sensor_summary] if item)
 
-        matched_docs = self._add_step(
-            steps, "retrieve_knowledge", "维修知识检索", final_query or "通用设备点检",
-            lambda: self.vector_engine.search_similar(final_query or "发动机 检修", top_k=4),
-        ) or []
-        redline_checks = self._add_step(
-            steps, "validate_redlines", "参数红线校验", query_text or "待测参数",
-            lambda: self._redline_check(query_text, sensor_result),
-        ) or []
+        if "matched_docs" in precomputed:
+            matched_docs = precomputed["matched_docs"] or []
+            steps.append({"tool": "retrieve_knowledge", "label": "维修知识检索", "status": "completed",
+                          "input_summary": "LangGraph 工具结果", "output_summary": self._summary(matched_docs), "duration_ms": 0})
+        else:
+            matched_docs = self._add_step(
+                steps, "retrieve_knowledge", "维修知识检索", final_query or "通用设备点检",
+                lambda: self.vector_engine.search_similar(final_query or "发动机 检修", top_k=4),
+            ) or []
+        if "redline_checks" in precomputed:
+            redline_checks = precomputed["redline_checks"] or []
+            steps.append({"tool": "validate_redlines", "label": "参数红线校验", "status": "completed",
+                          "input_summary": "LangGraph 工具结果", "output_summary": self._summary(redline_checks), "duration_ms": 0})
+        else:
+            redline_checks = self._add_step(
+                steps, "validate_redlines", "参数红线校验", query_text or "待测参数",
+                lambda: self._redline_check(query_text, sensor_result),
+            ) or []
 
         profile = self._add_step(
             steps, "build_diagnosis", "融合诊断决策", f"{len(matched_docs)} 条知识证据",

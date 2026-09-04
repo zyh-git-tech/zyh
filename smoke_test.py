@@ -14,6 +14,8 @@ def run():
     app.config.update(TESTING=True)
     results = []
     with app.test_client() as client:
+        login_response = client.post("/login", data={"username": os.getenv("ADMIN_USERNAME", "admin"), "password": os.getenv("ADMIN_PASSWORD", "admin")})
+        assert login_response.status_code == 302
         for path in [
             "/", "/agent", "/diagnosis", "/predictive", "/work-orders", "/sop",
             "/compliance", "/knowledge-graph", "/upload", "/admin/audit",

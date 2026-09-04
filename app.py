@@ -5,8 +5,10 @@ import secrets
 import sys
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
 from image_service import ImageInspectionService
@@ -46,6 +48,13 @@ app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "static", "uploads")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = app_env == "production"
+app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 12
+
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin").strip() or "admin"
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
+if app_env == "production" and not ADMIN_PASSWORD_HASH:
+    raise RuntimeError("ADMIN_PASSWORD_HASH must be set when APP_ENV=production")
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "jfif", "gif", "webp", "bmp"}
 db.init_app(app)
@@ -138,6 +147,50 @@ def build_profile(query, image_result, matched_docs):
 
 
 agent_engine = LangGraphAgentOrchestrator(vector_engine, image_engine, build_profile)
+
+
+def is_safe_next_url(target):
+    parsed = urlparse(target or "")
+    return not parsed.netloc and not parsed.scheme and (target or "").startswith("/")
+
+
+def verify_admin_credentials(username, password):
+    if username != ADMIN_USERNAME:
+        return False
+    if ADMIN_PASSWORD_HASH:
+        return check_password_hash(ADMIN_PASSWORD_HASH, password)
+    return app_env != "production" and secrets.compare_digest(password, ADMIN_PASSWORD)
+
+
+@app.before_request
+def require_login():
+    public_endpoints = {"login", "logout", "healthcheck", "static"}
+    if request.endpoint in public_endpoints or session.get("authenticated"):
+        return
+    next_url = request.full_path.rstrip("?")
+    if request.method == "GET":
+        return redirect(url_for("login", next=next_url))
+    return jsonify({"status": "error", "message": "请先登录。", "login_url": url_for("login")}), 401
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    next_url = request.args.get("next", "") if request.method == "GET" else request.form.get("next", "")
+    if request.method == "POST":
+        if verify_admin_credentials(request.form.get("username", "").strip(), request.form.get("password", "")):
+            session.clear()
+            session.permanent = True
+            session["authenticated"] = True
+            session["username"] = ADMIN_USERNAME
+            return redirect(next_url if is_safe_next_url(next_url) else url_for("dashboard"))
+        flash("用户名或密码错误。", "warning")
+    return render_template("login.html", next_url=next_url)
+
+
+@app.route("/logout", methods=["POST", "GET"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.before_request
@@ -424,6 +477,8 @@ def capabilities():
         "agent": {
             "framework": "LangGraph",
             "tool_calling": bool(os.getenv("LLM_API_KEY", "").strip()),
+            "tool_loop": bool(os.getenv("LLM_API_KEY", "").strip()),
+            "max_iterations": 8,
             "human_confirmation": "required_for_work_order",
         },
         "llm": vector_engine.llm_capabilities(),

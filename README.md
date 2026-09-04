@@ -22,11 +22,11 @@
 
 ## 5 分钟演示
 
-1. 启动应用并打开 <http://127.0.0.1:5000/agent>。
+1. 启动应用并打开 <http://127.0.0.1:5000/>，先使用管理员账号登录。
 2. 输入“冷机启动困难，火花塞发黑，伴随异响”，上传 `tests/fixtures/engine_sample.ppm`。
 3. 勾选内置传感器退化基线，运行 Agent。
 4. 查看七步工具轨迹、图片候选区域、趋势风险、检索证据和参数红线。
-5. 点击生成工单，完成第一步签核，再到工单中心查看进度。
+5. 点击生成工单，完成第一步签核，再到工单中心查看进度。登录后所有页面、API 和工作台功能均可用。
 
 完整讲解稿见 [`docs/demo-script.md`](docs/demo-script.md)，系统数据流见 [`docs/architecture.md`](docs/architecture.md)。
 
@@ -72,6 +72,21 @@ python app.py
 ```
 
 浏览器访问 <http://127.0.0.1:5000>。首次访问会自动创建 SQLite 数据库和演示设备数据。
+
+### 登录配置
+
+应用默认对所有业务页面和 API 启用单账号会话保护；`/login`、`/logout`、`/healthz` 和静态资源保持公开。开发环境可使用明文便捷变量，生产环境应使用哈希：
+
+```powershell
+$env:APP_SECRET_KEY="随机长字符串"
+$env:ADMIN_USERNAME="admin"
+$env:ADMIN_PASSWORD="仅限本地开发"
+# 生产环境改用 Werkzeug 生成的哈希：
+# python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('CHANGE_ME'))"
+$env:ADMIN_PASSWORD_HASH="生成的密码哈希"
+```
+
+未登录访问页面会跳转到登录页，成功后自动回到原始地址；`/healthz` 可供平台探活且不要求登录。
 
 ### 生产 WSGI
 
@@ -151,7 +166,14 @@ Chroma 首次启动会从合成知识库建立本地 collection；YOLO 只有在
 
 ## Render 部署
 
-仓库提供 [`render.yaml`](render.yaml)。在 Render 中选择 **New Blueprint** 并连接本仓库即可创建服务。部署后将 README 中的在线 Demo 占位链接替换为实际地址。
+仓库提供 [`render.yaml`](render.yaml)。部署步骤：
+
+1. 将代码推送到 GitHub，在 Render 选择 **New Blueprint** 并连接仓库。
+2. 使用 Gunicorn 启动 Web Service，Render 会通过 `/healthz` 检查服务状态。
+3. 在 Render Secret 中配置 `APP_SECRET_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`；需要云端 Agent 时再配置 `LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`。
+4. 使用 Render 分配的 HTTPS 地址打开登录页。登录后驾驶舱、Agent、诊断、预测、工单、SOP、合规和知识图谱等功能全部可用。
+
+未配置模型密钥时，Agent 仍运行本地确定性策略；配置密钥后，LangGraph 会让模型自主选择并循环调用四个只读检修工具，最终结果仍通过本地融合层和人工确认工单流程输出。
 
 Render 免费实例可能休眠；SQLite 数据属于实例本地临时数据，适合公开演示，不适合作为生产持久化数据库。生产环境应替换为托管数据库并增加认证、权限隔离、CSRF、防审计和多租户能力。
 
