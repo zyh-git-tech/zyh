@@ -4,3 +4,5 @@ gunicorn>=22,<24
 requests>=2.31,<3
 Pillow>=10.0,<13
 numpy>=1.26,<3
+langgraph>=1.0,<2
+langchain-openai>=1.0,<2

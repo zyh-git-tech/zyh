@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-    UI[Flask 页面] --> Agent[AgentOrchestrator]
+    UI[Flask 页面] --> Agent[LangGraph AgentOrchestrator]
     Agent --> Image[YOLO/规则图像检测双后端]
     Agent --> Sensor[CSV 解析与趋势拟合]
     Agent --> Retrieve[关键词/Chroma 双后端检索]
@@ -24,7 +24,7 @@ flowchart LR
 
 ## 关键设计
 
-1. **工具编排而非黑盒调用**：Agent 将图片、传感器、检索、红线、诊断和工单拆成可观察步骤，每一步记录状态、耗时和摘要。
+1. **受限工具 Agent**：LangGraph 管理工具选择状态和循环，模型只可调用图像、时序、检索、红线四类只读工具；诊断结果和工单草稿仍经人工确认。
 2. **本地优先**：没有云端密钥时，使用合成知识库和确定性规则；网络请求失败时回退到相同的本地路径。检索可在关键词和 Chroma 间切换，视觉可在规则和 YOLO 间切换。
 3. **证据可追溯**：诊断结果关联 trace id、检索来源、匹配词、传感器数据质量回执和红线结果。
 4. **业务闭环**：诊断或预测分析可以生成工单，工单步骤签核后再沉淀为可审核案例。
@@ -38,4 +38,5 @@ flowchart LR
 | `predictive_service.py` | `hour,temperature,vibration,pressure` CSV | 趋势斜率、R²、滚动均值、波动率、异常分数、RUL |
 | `vector_service.py` | 文本现象和多模态摘要 | 匹配证据、命中词、Qwen 或离线诊断建议 |
 | `standards_service.py` | 规则键和值 | 合格/超差、偏差量、解释消息 |
-| `agent_service.py` | 文本、图片、CSV、设备型号 | 七步轨迹、融合诊断、工单草稿 |
+| `langgraph_agent.py` | 任务输入、可选模型工具调用 | 受限工具计划、LangGraph 状态路由、运行时元数据 |
+| `agent_service.py` | 文本、图片、CSV、设备型号、工具计划 | 七步轨迹、融合诊断、工单草稿 |

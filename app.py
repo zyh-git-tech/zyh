@@ -10,7 +10,7 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, ses
 from werkzeug.utils import secure_filename
 
 from image_service import ImageInspectionService
-from agent_service import AgentOrchestrator
+from langgraph_agent import LangGraphAgentOrchestrator
 from knowledge_graph_service import build_knowledge_graph
 from models import (
     db, AgentRun, DiagnosisRecord, Equipment, LlmLabeledFeedback, MaintCase,
@@ -43,11 +43,33 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "static", "uploads")
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = app_env == "production"
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "jfif", "gif", "webp", "bmp"}
 db.init_app(app)
 vector_engine = VectorService()
 image_engine = ImageInspectionService()
+
+
+def load_json(value, default=None):
+    """Parse persisted JSON fields without letting a malformed record break a page."""
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+
+DEFAULT_WORK_ORDER_STEPS = (
+    ("执行能量隔离与故障复现", "停机、断电、挂牌，记录工况"),
+    ("按诊断证据检查重点部位", "逐项对照图片线索与手册来源"),
+    ("采集关键实测参数", "使用参数红线复核并保留测量值"),
+    ("执行维修、更换或调整", "按演示维护规程的力矩与装配顺序执行"),
+    ("复测签核并回填经验", "故障消失、参数合格、附件完整"),
+)
 
 
 def allowed_file(filename):
@@ -115,7 +137,7 @@ def build_profile(query, image_result, matched_docs):
     }
 
 
-agent_engine = AgentOrchestrator(vector_engine, image_engine, build_profile)
+agent_engine = LangGraphAgentOrchestrator(vector_engine, image_engine, build_profile)
 
 
 @app.before_request
@@ -136,12 +158,7 @@ def ensure_demo_data():
 def agent_workspace():
     run_id = session.get("agent_run_id")
     run_record = db.session.get(AgentRun, run_id) if run_id else None
-    run_data = None
-    if run_record:
-        try:
-            run_data = json.loads(run_record.result_json)
-        except (TypeError, json.JSONDecodeError):
-            run_data = None
+    run_data = load_json(run_record.result_json if run_record else None)
     return render_template(
         "agent.html", run_record=run_record, run_data=run_data,
         equipments=Equipment.query.all(), selected_model=(run_data or {}).get("input", {}).get("device_model", ""),
@@ -209,7 +226,7 @@ def create_agent_work_order():
         return redirect(url_for("agent_workspace"))
     if run_record.work_order_id:
         return redirect(url_for("work_order_detail", order_id=run_record.work_order_id))
-    run_data = json.loads(run_record.result_json)
+    run_data = load_json(run_record.result_json, {})
     draft = run_data.get("work_order_draft", {})
     diagnosis = db.session.get(DiagnosisRecord, run_record.diagnosis_id)
     if not diagnosis:
@@ -353,8 +370,8 @@ def diagnosis():
             selected_model = diagnosis_record.device_model or ""
             llm_answer = diagnosis_record.answer
             image_filename = diagnosis_record.image_path or ""
-            image_result = json.loads(diagnosis_record.image_findings) if diagnosis_record.image_findings else None
-            matched_docs = json.loads(diagnosis_record.sources_json) if diagnosis_record.sources_json else []
+            image_result = load_json(diagnosis_record.image_findings)
+            matched_docs = load_json(diagnosis_record.sources_json, [])
             profile = build_profile(query_text, image_result, matched_docs)
 
     return render_template(
@@ -404,6 +421,11 @@ def capabilities():
             "fallback": requested_vision == "yolo" and image_engine.backend_name != "yolo",
         },
         "predictive": {"active": "deterministic"},
+        "agent": {
+            "framework": "LangGraph",
+            "tool_calling": bool(os.getenv("LLM_API_KEY", "").strip()),
+            "human_confirmation": "required_for_work_order",
+        },
         "llm": vector_engine.llm_capabilities(),
     })
 
@@ -526,7 +548,7 @@ def predictive_maintenance():
         analysis_record = db.session.get(PredictiveAnalysis, predictive_result_id) if predictive_result_id else None
         if analysis_record:
             selected_model = analysis_record.device_model
-            result = json.loads(analysis_record.result_json)
+            result = load_json(analysis_record.result_json, {})
             source_profile = result.get("source_profile")
     recent = PredictiveAnalysis.query.order_by(PredictiveAnalysis.created_at.desc()).limit(5).all()
     return render_template(
@@ -586,23 +608,21 @@ def create_work_order():
     db.session.add(order)
     db.session.flush()
     if predictive:
-        prediction = json.loads(predictive.result_json)
-        primary = prediction["metrics"][prediction["primary_metric"]]
-        steps = [
-            ("复核传感器与数据质量", f"校验{primary['name']}传感器，排除漂移与松动"),
-            ("锁定最优停机窗口", predictive.maintenance_window),
-            (f"检查{primary['name']}关联部位", f"当前 {primary['current']} {primary['unit']}，危险阈值 {primary['danger']} {primary['unit']}"),
-            ("执行预防性维护", "按设备维护规程完成润滑、紧固、调整或部件更换"),
-            ("重建健康基线", "维护后连续采集不少于 4 个点并确认趋势回归"),
-        ]
+        prediction = load_json(predictive.result_json, {})
+        metrics = prediction.get("metrics", {})
+        primary = metrics.get(prediction.get("primary_metric"))
+        if primary:
+            steps = [
+                ("复核传感器与数据质量", f"校验{primary['name']}传感器，排除漂移与松动"),
+                ("锁定最优停机窗口", predictive.maintenance_window),
+                (f"检查{primary['name']}关联部位", f"当前 {primary['current']} {primary['unit']}，危险阈值 {primary['danger']} {primary['unit']}"),
+                ("执行预防性维护", "按设备维护规程完成润滑、紧固、调整或部件更换"),
+                ("重建健康基线", "维护后连续采集不少于 4 个点并确认趋势回归"),
+            ]
+        else:
+            steps = DEFAULT_WORK_ORDER_STEPS
     else:
-        steps = [
-            ("执行能量隔离与故障复现", "停机、断电、挂牌，记录工况"),
-            ("按诊断证据检查重点部位", "逐项对照图片线索与手册来源"),
-            ("采集关键实测参数", "使用参数红线复核并保留测量值"),
-            ("执行维修、更换或调整", "按演示维护规程的力矩与装配顺序执行"),
-            ("复测签核并回填经验", "故障消失、参数合格、附件完整"),
-        ]
+        steps = DEFAULT_WORK_ORDER_STEPS
     db.session.add_all([WorkOrderStep(order_id=order.id, step_num=i, title=title, standard=standard) for i, (title, standard) in enumerate(steps, 1)])
     db.session.commit()
     flash(f"已生成工单 {order.order_no}，诊断证据和追溯编号已自动关联。", "success")

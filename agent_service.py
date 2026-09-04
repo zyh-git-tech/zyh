@@ -98,41 +98,48 @@ class AgentOrchestrator:
         return checks
 
     def run(self, query_text="", device_model="", image_path=None, sensor_content=None,
-            sensor_filename="sensor_data.csv", use_demo_sensor=False):
+            sensor_filename="sensor_data.csv", use_demo_sensor=False, tool_order=None):
         steps = []
         trace_id = self._trace_id()
         image_result = None
         sensor_result = None
         source_profile = None
 
-        if image_path:
-            image_result = self._add_step(
-                steps, "inspect_image", "图像缺陷分析", "上传设备图片",
-                lambda: self.image_engine.analyze(image_path),
-            )
-        else:
-            steps.append({"tool": "inspect_image", "label": "图像缺陷分析", "status": "skipped",
-                          "input_summary": "未上传图片", "output_summary": "跳过视觉工具", "duration_ms": 0})
+        def run_image():
+            return self.image_engine.analyze(image_path)
 
-        if sensor_content or use_demo_sensor:
-            def run_sensor():
-                nonlocal source_profile
-                if sensor_content:
-                    rows, source_profile = parse_csv_with_profile(sensor_content, sensor_filename)
+        def run_sensor():
+            nonlocal source_profile
+            if sensor_content:
+                rows, source_profile = parse_csv_with_profile(sensor_content, sensor_filename)
+            else:
+                rows = demo_series()
+                source_profile = self._demo_profile(rows)
+            result = analyze_series(rows)
+            result["source_profile"] = source_profile
+            return result
+
+        # The planner may swap independent perception tools; retrieval and
+        # validation stay after them because they consume their evidence.
+        perception_order = [name for name in (tool_order or []) if name in {"inspect_image", "analyze_sensor"}]
+        for name in ("inspect_image", "analyze_sensor"):
+            if name not in perception_order:
+                perception_order.append(name)
+        for name in perception_order:
+            if name == "inspect_image":
+                if image_path:
+                    image_result = self._add_step(steps, name, "图像缺陷分析", "上传设备图片", run_image)
                 else:
-                    rows = demo_series()
-                    source_profile = self._demo_profile(rows)
-                result = analyze_series(rows)
-                result["source_profile"] = source_profile
-                return result
-            sensor_result = self._add_step(
-                steps, "analyze_sensor", "传感器趋势分析",
-                sensor_filename if sensor_content else "内置退化基线",
-                run_sensor,
-            )
-        else:
-            steps.append({"tool": "analyze_sensor", "label": "传感器趋势分析", "status": "skipped",
-                          "input_summary": "未上传 CSV", "output_summary": "跳过时序工具", "duration_ms": 0})
+                    steps.append({"tool": name, "label": "图像缺陷分析", "status": "skipped",
+                                  "input_summary": "未上传图片", "output_summary": "跳过视觉工具", "duration_ms": 0})
+            elif sensor_content or use_demo_sensor:
+                sensor_result = self._add_step(
+                    steps, name, "传感器趋势分析",
+                    sensor_filename if sensor_content else "内置退化基线", run_sensor,
+                )
+            else:
+                steps.append({"tool": name, "label": "传感器趋势分析", "status": "skipped",
+                              "input_summary": "未上传 CSV", "output_summary": "跳过时序工具", "duration_ms": 0})
 
         visual_summary = image_result.get("summary", "") if image_result else ""
         sensor_summary = sensor_result.get("summary", "") if sensor_result else ""

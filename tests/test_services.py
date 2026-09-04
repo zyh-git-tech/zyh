@@ -2,6 +2,7 @@
 import pytest
 from types import SimpleNamespace
 from agent_service import AgentOrchestrator
+from langgraph_agent import LangGraphAgentOrchestrator
 
 from predictive_service import analyze_series, demo_series, parse_csv_with_profile
 from standards_service import check_parameter
@@ -178,3 +179,72 @@ def test_agent_records_llm_generation_step():
     assert calls
     assert result["diagnosis"]["answer"].startswith("云端建议")
     assert any(step["tool"] == "generate_diagnostic_answer" for step in result["steps"])
+
+
+class _AgentVector:
+    def search_similar(self, query, top_k=4):
+        return [{"source": "演示", "text": "检查点火", "score": 0.8, "matched_terms": []}]
+
+    def call_llm(self, query, docs):
+        return "本地建议"
+
+    def _offline_diagnostic_fallback(self, query, docs, reason):
+        return "本地建议"
+
+    def llm_capabilities(self):
+        return {"provider": "qwen", "model": "qwen-plus", "configured": False, "active": "offline", "error": ""}
+
+
+def _langgraph_agent():
+    return LangGraphAgentOrchestrator(
+        _AgentVector(),
+        SimpleNamespace(analyze=lambda path: {"summary": "图片证据"}),
+        lambda *args: {
+            "risk_score": 25, "risk_level": "低风险", "risk_class": "safe", "confidence": 0.7,
+            "causes": ["测试"], "plan": [],
+        },
+    )
+
+
+def test_langgraph_policy_route_preserves_legacy_trace(monkeypatch):
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    result = _langgraph_agent().run(query_text="启动困难")
+
+    assert result["runtime"]["framework"] == "LangGraph"
+    assert result["runtime"]["mode"] == "policy"
+    assert result["runtime"]["selected_tools"] == ["retrieve_knowledge", "validate_redlines"]
+    assert [step["tool"] for step in result["steps"]] == [
+        "inspect_image", "analyze_sensor", "retrieve_knowledge", "validate_redlines",
+        "build_diagnosis", "generate_diagnostic_answer", "prepare_work_order",
+    ]
+
+
+def test_langgraph_policy_includes_only_available_perception_tools(monkeypatch):
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    result = _langgraph_agent().run(image_path="fixture.png", use_demo_sensor=False)
+
+    assert result["runtime"]["selected_tools"] == ["inspect_image", "retrieve_knowledge", "validate_redlines"]
+    assert result["image_result"] == {"summary": "图片证据"}
+    assert result["sensor_result"] is None
+
+
+def test_langgraph_model_plan_is_filtered_and_completed(monkeypatch):
+    agent = _langgraph_agent()
+    monkeypatch.setattr(agent, "_tool_calling_order", lambda *args: [
+        "validate_redlines", "unknown_tool", "inspect_image", "inspect_image", "analyze_sensor",
+    ])
+    result = agent.run(image_path="fixture.png", use_demo_sensor=False)
+
+    assert result["runtime"]["mode"] == "tool-calling"
+    assert result["runtime"]["selected_tools"] == ["inspect_image", "retrieve_knowledge", "validate_redlines"]
+    assert result["steps"][0]["tool"] == "select_tools"
+    assert "unknown_tool" not in result["runtime"]["selected_tools"]
+
+
+def test_langgraph_malformed_model_plan_falls_back_to_policy(monkeypatch):
+    agent = _langgraph_agent()
+    monkeypatch.setattr(agent, "_tool_calling_order", lambda *args: ["unknown_tool"])
+    result = agent.run(query_text="启动困难")
+
+    assert result["runtime"]["mode"] == "policy"
+    assert result["runtime"]["selected_tools"] == ["retrieve_knowledge", "validate_redlines"]
