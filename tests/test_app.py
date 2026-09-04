@@ -34,6 +34,18 @@ def test_login_redirects_to_requested_page_and_logout_clears_session():
         assert client.get("/").status_code == 302
 
 
+def test_login_remembers_account_names_without_passwords():
+    app.config.update(TESTING=True)
+    with app.test_client() as client:
+        page = client.get("/login").get_data(as_text=True)
+        assert "gongjing_recent_accounts" in page
+        assert "account-chip" in page
+        assert "localStorage" in page
+        script = page.split("localStorage", 1)[1].split("</script>", 1)[0]
+        assert "JSON.stringify(accounts)" in script
+        assert "password.value" not in script
+
+
 def test_invalid_login_does_not_authenticate():
     app.config.update(TESTING=True)
     with app.test_client() as client:

@@ -11,6 +11,10 @@
       <input type="hidden" name="next" value="{{ next_url }}">
       <label class="form-label" for="username">用户名</label>
       <input class="input" id="username" name="username" autocomplete="username" required autofocus>
+      <div id="rememberedAccounts" class="remembered-accounts" hidden>
+        <span class="remembered-label">最近登录</span>
+        <div id="accountList" class="account-list"></div>
+      </div>
       <label class="form-label" for="password">密码</label>
       <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
       <button class="btn btn-primary btn-block" type="submit">登录工作台</button>
@@ -19,4 +23,34 @@
     <p class="login-footnote">本地可信模式 · 受保护的设备检修数据</p>
   </section>
 </main>
+<script>
+(() => {
+  const key = "gongjing_recent_accounts";
+  const form = document.querySelector(".login-form");
+  const username = document.getElementById("username");
+  const password = document.getElementById("password");
+  const wrap = document.getElementById("rememberedAccounts");
+  const list = document.getElementById("accountList");
+  let accounts = [];
+  try { accounts = JSON.parse(localStorage.getItem(key) || "[]"); } catch (_) { accounts = []; }
+  accounts = [...new Set(accounts.filter(item => typeof item === "string" && item.length))].slice(0, 6);
+  if (accounts.length) {
+    wrap.hidden = false;
+    accounts.forEach(account => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "account-chip";
+      button.textContent = account;
+      button.addEventListener("click", () => { username.value = account; password.focus(); });
+      list.appendChild(button);
+    });
+  }
+  form.addEventListener("submit", () => {
+    const account = username.value.trim();
+    if (!account) return;
+    accounts = [account, ...accounts.filter(item => item !== account)].slice(0, 6);
+    localStorage.setItem(key, JSON.stringify(accounts));
+  });
+})();
+</script>
 {% endblock %}
