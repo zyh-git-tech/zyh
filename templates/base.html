@@ -7,8 +7,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   {% block head %}{% endblock %}
 </head>
-<body class="{% if request.endpoint == 'login' %}login-page{% endif %}">
+<body class="{% if request.endpoint in ['login', 'register'] %}login-page{% endif %}">
+{% set auth_page = request.endpoint in ['login', 'register'] %}
 <div class="app-shell">
+  {% if not auth_page %}
   <aside class="sidebar" aria-label="主导航">
     <a class="brand" href="{{ url_for('dashboard') }}">
       <span class="brand-mark" aria-hidden="true">◈</span>
@@ -31,18 +33,21 @@
     </nav>
     <div class="side-status"><div class="status-line"><span class="pulse"></span>本地可信模式在线</div><small>手册、规则与审核案例可离线运行</small></div>
   </aside>
+  {% endif %}
   <main class="main">
+    {% if not auth_page %}
     <div class="workspace-grid" aria-hidden="true"></div>
     <header class="topbar">
       <div class="topbar-title"><strong>{% block top_title %}设备检修智能体{% endblock %}</strong><span>多模态感知 · RAG 检索 · 作业闭环</span></div>
       <div class="top-actions"><span class="tag">LoongArch Ready</span><span class="tag">版本 v4.0</span>{% if session.get('authenticated') %}<span class="tag">{{ session.get('username') }}</span><form method="post" action="{{ url_for('switch_account') }}" class="inline-form"><button class="btn btn-outline btn-small" type="submit">切换账号</button></form><form method="post" action="{{ url_for('logout') }}" class="inline-form"><button class="btn btn-outline btn-small" type="submit">退出登录</button></form>{% endif %}</div>
     </header>
+    {% endif %}
     <div class="content">
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
       {% endwith %}
       {% block content %}{% endblock %}
-      <div class="footer-note">工擎智维 · 面向工业现场的可解释多模态检修作业系统</div>
+      {% if not auth_page %}<div class="footer-note">工擎智维 · 面向工业现场的可解释多模态检修作业系统</div>{% endif %}
     </div>
   </main>
 </div>

@@ -229,6 +229,19 @@ def validate_registration(username, password):
     return ""
 
 
+def migrate_legacy_owner(admin_id):
+    """Move legacy business records to the z yh account when it exists."""
+    owner = User.query.filter_by(username="zyh").first()
+    if not owner or owner.id == admin_id:
+        return
+    owner_count = sum(model.query.filter_by(user_id=owner.id).count() for model in OWNED_MODELS)
+    legacy_count = sum(model.query.filter_by(user_id=admin_id).count() for model in OWNED_MODELS)
+    if owner_count == 0 and legacy_count:
+        for model in OWNED_MODELS:
+            model.query.filter_by(user_id=admin_id).update({"user_id": owner.id}, synchronize_session=False)
+        db.session.commit()
+
+
 @app.before_request
 def require_login():
     public_endpoints = {"login", "register", "logout", "switch_account", "healthcheck", "static"}
@@ -264,7 +277,10 @@ def register():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
         error = validate_registration(username, password)
+        if not error and password != confirm_password:
+            error = "两次输入的密码不一致。"
         if not error:
             db.session.add(User(username=username, password_hash=generate_password_hash(password), role="user"))
             db.session.commit()
@@ -306,6 +322,7 @@ def ensure_demo_data():
     for model in OWNED_MODELS:
         db.session.query(model).filter(model.user_id.is_(None)).update({"user_id": admin_id}, synchronize_session=False)
     db.session.commit()
+    migrate_legacy_owner(admin_id)
     if Equipment.query.count() == 0:
         db.session.add_all([
             Equipment(name="水冷顶置凸轮发动机", model="ZONTES-250"),

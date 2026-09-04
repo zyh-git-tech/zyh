@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import uuid
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("APP_VERSION", "test-version")
@@ -45,14 +46,27 @@ def test_register_login_switch_account_and_logout():
     app.config.update(TESTING=True)
     with app.test_client() as client:
         assert client.get("/register").status_code == 200
-        response = client.post("/register", data={"username": "operator_1", "password": "password123"})
+        response = client.post("/register", data={"username": "operator_1", "password": "password123", "confirm_password": "password123"})
         assert response.status_code == 302
-        duplicate = client.post("/register", data={"username": "operator_1", "password": "password123"})
+        duplicate = client.post("/register", data={"username": "operator_1", "password": "password123", "confirm_password": "password123"})
         assert duplicate.status_code == 200
         assert "已存在" in duplicate.get_data(as_text=True)
         assert client.post("/login", data={"username": "operator_1", "password": "password123"}).status_code == 302
         assert client.post("/switch-account").status_code == 302
         assert client.get("/").status_code == 302
+
+
+def test_registration_requires_matching_confirmation_and_hides_workspace_navigation():
+    app.config.update(TESTING=True)
+    with app.test_client() as client:
+        page = client.get("/register").get_data(as_text=True)
+        assert 'name="confirm_password"' in page
+        assert 'class="sidebar"' not in page
+        response = client.post("/register", data={
+            "username": "confirmation_user", "password": "password123", "confirm_password": "different123",
+        })
+        assert response.status_code == 200
+        assert "两次输入的密码不一致" in response.get_data(as_text=True)
 
 
 def test_healthcheck_reports_application_and_database_status():
@@ -104,13 +118,13 @@ def test_capabilities_probe_is_non_sensitive():
 
 def test_business_records_are_isolated_between_users_and_visible_to_admin():
     app.config.update(TESTING=True)
-    user_a = "isolation_a"
-    user_b = "isolation_b"
+    user_a = f"isolation_a_{uuid.uuid4().hex[:8]}"
+    user_b = f"isolation_b_{uuid.uuid4().hex[:8]}"
     client_a = app.test_client()
     client_b = app.test_client()
     admin_client = app.test_client()
-    client_a.post("/register", data={"username": user_a, "password": "password123"})
-    client_b.post("/register", data={"username": user_b, "password": "password123"})
+    client_a.post("/register", data={"username": user_a, "password": "password123", "confirm_password": "password123"})
+    client_b.post("/register", data={"username": user_b, "password": "password123", "confirm_password": "password123"})
     client_a.post("/login", data={"username": user_a, "password": "password123"})
     client_b.post("/login", data={"username": user_b, "password": "password123"})
 
@@ -125,14 +139,14 @@ def test_business_records_are_isolated_between_users_and_visible_to_admin():
         db.session.flush()
         order = WorkOrder(
             user_id=owner.id, order_no="WO-ISOLATION-A", diagnosis_id=diagnosis.id,
-            title="仅属于 isolation_a 的工单", device_model="ZONTES-250",
+            title=f"仅属于 {user_a} 的工单", device_model="ZONTES-250",
             priority="P3", assignee="测试", status="待处理",
         )
         db.session.add(order)
         db.session.commit()
         order_id = order.id
 
-    order_title = "仅属于 isolation_a 的工单"
+    order_title = f"仅属于 {user_a} 的工单"
     assert order_title in client_a.get("/work-orders").get_data(as_text=True)
     assert order_title not in client_b.get("/work-orders").get_data(as_text=True)
     assert client_b.get(f"/work-orders/{order_id}").status_code == 404

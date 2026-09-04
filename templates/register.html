@@ -12,6 +12,8 @@
       <input class="input" id="username" name="username" autocomplete="username" minlength="3" maxlength="32" required autofocus>
       <label class="form-label" for="password">密码</label>
       <input class="input" id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+      <label class="form-label" for="confirm_password">确认密码</label>
+      <input class="input" id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" required>
       <button class="btn btn-primary btn-block" type="submit">创建账号</button>
     </form>
     <p class="login-switch">已有账号？<a href="{{ url_for('login') }}">返回登录</a></p>
