@@ -166,12 +166,33 @@ Chroma 首次启动会从合成知识库建立本地 collection；YOLO 只有在
 
 ## Render 部署
 
-仓库提供 [`render.yaml`](render.yaml)。部署步骤：
+仓库提供 [`render.yaml`](render.yaml)，可通过 Render Blueprint 创建 Web Service 和 PostgreSQL。部署步骤：
 
-1. 将代码推送到 GitHub，在 Render 选择 **New Blueprint** 并连接仓库。
-2. 使用 Gunicorn 启动 Web Service，Render 会通过 `/healthz` 检查服务状态。
-3. Blueprint 会创建 Render PostgreSQL，并将 `DATABASE_URL` 注入 Web Service；在 Render Secret 中配置 `APP_SECRET_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`。
-4. 使用 Render 分配的 HTTPS 地址打开登录/注册页，注册普通账号或使用管理员账号登录。登录后驾驶舱、Agent、诊断、预测、工单、SOP、合规和知识图谱等功能全部可用。
+1. 将最新 `main` 推送到 GitHub，在 Render 选择 **New > Blueprint** 并连接 `zyh-git-tech/zyh` 仓库。
+2. 确认 Blueprint 中的 Web Service 使用 `gunicorn --workers 1 --timeout 120 --bind 0.0.0.0:$PORT app:app`，健康检查为 `/healthz`。
+3. 在 Render Secret 中填写 `APP_SECRET_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`、`LLM_API_KEY`；`DATABASE_URL` 由 Blueprint 自动引用 PostgreSQL。密码哈希可用：
+
+   ```powershell
+   python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('CHANGE_ME'))"
+   ```
+
+4. 点击 **Apply** 完成部署。Render 创建服务后会显示形如 `https://gongjing-zhiwei-demo.onrender.com` 的 HTTPS 地址；该地址由 Render 分配，仓库无法预先生成。
+5. 打开该 HTTPS 地址进入登录/注册页。注册普通账号后，驾驶舱、Agent、诊断、预测、工单、SOP、合规、知识图谱和专家治理均可直接使用，不依赖 VS Code 或本地 `app.py`。
+
+### SQLite 迁移到 Render PostgreSQL
+
+迁移是一次性人工操作，不会在应用启动时自动执行。先从 Render PostgreSQL 的 **Connect > External Database URL** 复制连接串，再在项目根目录运行：
+
+```powershell
+$env:SOURCE_SQLITE_URL = "sqlite:///C:/Users/34495/Desktop/多模态检测/maintenance.db"
+$env:TARGET_DATABASE_URL = "postgresql://USER:PASSWORD@HOST/DBNAME"
+python scripts/migrate_sqlite_to_postgres.py --dry-run
+python scripts/migrate_sqlite_to_postgres.py
+```
+
+脚本会把设备、SOP 作为共享数据导入，并将诊断、Agent 运行、预测、工单、工单步骤、案例和专家反馈统一归属 `zyh` 账号，保留原主键、时间、状态和关联关系。目标库已有任意数据时脚本会停止；确认需要覆盖时才显式使用 `--replace`。迁移输出会列出用户、工单、诊断、Agent、预测、案例和步骤数量，便于与本地库核对。
+
+Render 免费 Web Service 可能因空闲休眠，首次访问会有冷启动延迟；PostgreSQL 数据跨重启持久保存，但数据库实例按 Render 方案计费。SQLite 仅适合本地或临时演示，不应作为公网持久化数据库。
 
 未配置模型密钥时，Agent 仍运行本地确定性策略；配置密钥后，LangGraph 会让模型自主选择并循环调用四个只读检修工具，最终结果仍通过本地融合层和人工确认工单流程输出。
 
