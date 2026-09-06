@@ -17,7 +17,7 @@ except ImportError:
     END = START = StateGraph = add_messages = None
 
 
-MAX_ITERATIONS = 8
+MAX_ITERATIONS = 4
 READ_ONLY_TOOLS = ("inspect_image", "analyze_sensor", "retrieve_knowledge", "validate_redlines")
 
 

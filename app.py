@@ -14,7 +14,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from image_service import ImageInspectionService
-from langgraph_agent import LangGraphAgentOrchestrator
+from langgraph_agent import LangGraphAgentOrchestrator, MAX_ITERATIONS
 from knowledge_graph_service import build_knowledge_graph
 from models import (
     db, AgentRun, DiagnosisRecord, Equipment, LlmLabeledFeedback, MaintCase, User,
@@ -617,7 +617,7 @@ def capabilities():
             "framework": "LangGraph",
             "tool_calling": bool(os.getenv("LLM_API_KEY", "").strip()),
             "tool_loop": bool(os.getenv("LLM_API_KEY", "").strip()),
-            "max_iterations": 8,
+            "max_iterations": MAX_ITERATIONS,
             "human_confirmation": "required_for_work_order",
         },
         "llm": vector_engine.llm_capabilities(),
