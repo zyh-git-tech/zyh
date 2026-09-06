@@ -31,6 +31,8 @@ services:
         value: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
       - key: LLM_MODEL
         value: qwen-plus
+      - key: LLM_PROVIDER
+        value: qwen
 databases:
   - name: gongjing-zhiwei-db
     plan: free

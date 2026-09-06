@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import inspect
+from dotenv import load_dotenv
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -23,6 +24,9 @@ from predictive_service import SENSOR_RULES, analyze_series, demo_series, parse_
 from standards_service import STANDARD_RULES, check_parameter
 from vector_service import VectorService
 
+
+PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
+load_dotenv(os.path.join(PROJECT_ROOT, ".env"), override=False)
 
 app = Flask(__name__)
 app_env = os.getenv("APP_ENV", "development").lower()
@@ -455,7 +459,8 @@ def ensure_remaining_demo_data():
         ])
         db.session.commit()
 
-    if admin_id and admin_id == current_user_id() and WorkOrder.query.filter_by(user_id=admin_id).count() == 0:
+    demo_order_exists = WorkOrder.query.filter_by(order_no="WO-DEMO-001").first() is not None
+    if admin_id and admin_id == current_user_id() and not demo_order_exists:
         order = WorkOrder(
             user_id=admin_id,
             order_no="WO-DEMO-001", title="ZONTES-250 启动困难例行排查",
