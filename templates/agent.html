@@ -27,7 +27,7 @@
   <div class="agent-main">
     {% if run_data %}
     <section class="panel">
-      <div class="panel-head"><h2>工具调用轨迹</h2><div class="chips"><span class="badge safe">{{ run_data.status }}</span><span class="badge {% if run_data.runtime.mode == 'tool-calling' %}info{% else %}warning{% endif %}">{{ '模型动态决策' if run_data.runtime.mode == 'tool-calling' else '本地策略路由' }}</span></div></div>
+      <div class="panel-head"><h2>工具调用轨迹</h2><div class="chips"><span class="badge safe">{{ run_data.status }}</span><span class="badge {% if run_data.runtime.mode == 'tool-calling' %}info{% else %}warning{% endif %}">{{ '模型动态决策' if run_data.runtime.mode == 'tool-calling' else '本地策略路由' }}</span><form method="post" action="{{ url_for('reset_agent_workspace') }}" class="inline-form"><button class="btn btn-outline btn-small" type="submit">✕ 清空结果</button></form></div></div>
       <div class="panel-body agent-trace">
         {% for step in run_data.steps %}
         <div class="agent-step {{ step.status }}"><div class="agent-step-marker">{% if step.status == 'completed' %}✓{% elif step.status == 'failed' %}!{% else %}–{% endif %}</div><div class="agent-step-content"><div class="agent-step-top"><strong>{{ loop.index }}. {{ step.label }}</strong><span>{{ step.duration_ms }} ms</span></div><small><b>{{ step.tool }}</b> · {{ step.input_summary }}</small><p>{{ step.output_summary }}</p></div></div>

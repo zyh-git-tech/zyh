@@ -165,3 +165,19 @@ def test_business_records_are_isolated_between_users_and_visible_to_admin():
 
     admin_client.post("/login", data={"username": "admin", "password": "admin"})
     assert order_title in admin_client.get("/work-orders").get_data(as_text=True)
+
+
+def test_agent_reset_clears_previous_workspace_result():
+    app.config.update(TESTING=True)
+    with app.test_client() as client:
+        login(client)
+        with client.session_transaction() as sess:
+            sess["agent_run_id"] = 12345
+        response = client.post("/agent/reset")
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/agent")
+        with client.session_transaction() as sess:
+            assert "agent_run_id" not in sess
+        # workspace renders the blank initial state afterwards
+        page = client.get("/agent").get_data(as_text=True)
+        assert "等待 Agent 任务" in page

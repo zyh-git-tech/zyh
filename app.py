@@ -348,6 +348,13 @@ def agent_workspace():
     )
 
 
+@app.route("/agent/reset", methods=["POST"])
+def reset_agent_workspace():
+    """Clear the last workspace result so the next visitor starts from a blank state."""
+    session.pop("agent_run_id", None)
+    return redirect(url_for("agent_workspace"))
+
+
 @app.route("/agent/run", methods=["POST"])
 def run_agent_workspace():
     query_text = request.form.get("query_text", "").strip()
