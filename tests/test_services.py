@@ -114,7 +114,7 @@ def test_qwen_chat_completion_uses_configured_endpoint(monkeypatch):
     assert captured["url"] == "https://qwen.example.test/v1/chat/completions"
     assert captured["json"]["model"] == "qwen-plus"
     assert captured["headers"]["Authorization"] == "Bearer TEST_TOKEN"
-    assert captured["timeout"] == 20.0
+    assert captured["timeout"] == 45.0
     assert service.llm_capabilities()["active"] == "qwen"
 
 

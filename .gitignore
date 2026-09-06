@@ -3,6 +3,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.ai-memory/
 .idea/
 *.py[cod]
 *.pyo

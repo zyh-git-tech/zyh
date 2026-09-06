@@ -194,9 +194,9 @@ class VectorService:
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
         try:
-            timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "20"))
+            timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
         except ValueError:
-            timeout = 20.0
+            timeout = 45.0
         try:
             response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
             response.raise_for_status()

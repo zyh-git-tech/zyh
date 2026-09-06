@@ -144,7 +144,7 @@ class LangGraphAgentOrchestrator:
             model = ChatOpenAI(
                 api_key=os.getenv("LLM_API_KEY"), base_url=base_url,
                 model=os.getenv("LLM_MODEL", "qwen-plus"), temperature=0,
-                timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "20")), max_retries=1,
+                timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "45")), max_retries=1,
             ).bind_tools(tools)
             graph = StateGraph(_State)
 
